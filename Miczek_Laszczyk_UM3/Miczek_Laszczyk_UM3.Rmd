@@ -1,0 +1,579 @@
+---
+title: "Sprawozdanie 3"
+author: "Andrzej Miczek & Jakub Laszczyk"
+date: "25.10.2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **1. Wybór i opis zestawu danych**
+<br>
+
+#### **Wybór**
+
+Do wykonania tego zadania zdecydowaliśmy się wybrać zestaw danych **Herat.csv**, a dokładniej wersji wygenerowanej na podstawie poprzedniego zadania z zastąpionymi brakami na modstawie metody kNN - **Heart2.csv**.
+
+#### **Opis i rodzaj zmiennych**
+
+**Age** (Wiek):
+To jest zmienna ciągła, która określa wiek pacjenta. Może przyjmować wartości liczbowe reprezentujące wiek w latach.
+
+**Sex** (Płeć):
+To jest zmienna kategoryczna, która określa płeć pacjenta. Zazwyczaj przyjmuje dwie wartości: "M" dla mężczyzn i "F" dla kobiet.
+
+**RestingBP** (Ciśnienie spoczynkowe):
+To jest zmienna ciągła, która reprezentuje ciśnienie krwi pacjenta w spoczynku. Zwykle wyrażane w mm Hg (milimetrach słupa rtęci).
+
+**Cholesterol** (Poziom cholesterolu):
+To jest zmienna ciągła, która określa poziom cholesterolu we krwi pacjenta. Zazwyczaj wyrażana w jednostkach, takich jak mg/dL.
+
+**FastingBS** (Poziom glukozy na czczo):
+To jest zmienna kategoryczna, która określa, czy pacjent miał poziom glukozy na czczo powyżej pewnej wartości (np. "1" dla tak, "0" dla nie).
+
+**MaxHR** (Maksymalne tętno):
+To jest zmienna ciągła, która reprezentuje maksymalne tętno pacjenta.
+
+**ExerciseAngina** (Angina wysiłkowa):
+To jest zmienna kategoryczna, która określa, czy pacjent doświadczał duszności spowodowanej wysiłkiem (np. "1" dla tak, "0" dla nie).
+
+**Oldpeak** (Obniżenie odcinka ST podczas wysiłku):
+To jest zmienna ciągła, która określa obniżenie odcinka ST w wyniku wysiłku fizycznego.
+
+**ChestPainTypeASY** (Rodzaj bólu w klatce piersiowej: Asymptomatic):
+To jest zmienna kategoryczna, która określa rodzaj bólu w klatce piersiowej. Może mieć wartość "1" dla bólu typu "Asymptomatic" lub "0" dla innych rodzajów bólu.
+
+**ChestPainTypeATA** (Rodzaj bólu w klatce piersiowej: Atypical angina):
+To jest zmienna kategoryczna, która określa rodzaj bólu w klatce piersiowej. Może mieć wartość "1" dla bólu typu "Atypical angina" lub "0" dla innych rodzajów bólu.
+
+**ChestPainTypeNAP** (Rodzaj bólu w klatce piersiowej: Non-anginal pain):
+To jest zmienna kategoryczna, która określa rodzaj bólu w klatce piersiowej. Może mieć wartość "1" dla bólu typu "Non-anginal pain" lub "0" dla innych rodzajów bólu.
+
+**RestingECGLVH** (Wynik elektrokardiogramu w spoczynku: Left ventricular hypertrophy):
+To jest zmienna kategoryczna, która określa wynik elektrokardiogramu w spoczynku. Może mieć wartość "1" dla "Left ventricular hypertrophy" lub "0" dla innego wyniku.
+
+**RestingECGNormal** (Wynik elektrokardiogramu w spoczynku: Normal):
+To jest zmienna kategoryczna, która określa wynik elektrokardiogramu w spoczynku. Może mieć wartość "1" dla "Normal" lub "0" dla innego wyniku.
+
+**STSlopeDown** (Nachylenie odcinka ST: Down-sloping):
+To jest zmienna kategoryczna, która określa nachylenie odcinka ST. Może mieć wartość "1" dla "Down-sloping" lub "0" dla innego nachylenia.
+
+**STSlopeFlat** (Nachylenie odcinka ST: Flat):
+To jest zmienna kategoryczna, która określa nachylenie odcinka ST. Może mieć wartość "1" dla "Flat" lub "0" dla innego nachylenia.
+
+**heartDisease** (Choroba serca):
+To jest zmienna kategoryczna, która określa obecność lub brak choroby serca. Zazwyczaj przyjmuje wartość "1" dla obecności choroby serca i "0" dla jej braku.
+
+Zmienna "heartDisease" jest w naszym przypadku zmienną docelową lub zmienną wynikową, którą można próbować przewidywać na podstawie innych zmiennych w zestawie danych, przy pomocy modelowania predykcyjnego. Reszta zmiennych stanowi potencjalne cechy lub zmienne objaśniające.
+
+```{r results='hide'}
+dane <-  read.csv("Heart2.csv", sep=";")
+```
+```{r echo=FALSE}
+str(dane)
+```
+
+# **2. Wykorzystanie prostego drzewa decyzyjnego do predykcji wartości zmiennej wynikowej.**
+<br>
+
+#### **Weryfikacja jak poziom przycięcie drzewa wpływa na uzyskiwane wyniki.**
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+library(caret)
+library(rpart.plot)
+library(mlr)
+library(pROC)
+library(rpart)
+library(adabag)
+```
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+dane <-  read.csv("Heart2.csv", sep=";")
+```
+```{r echo=FALSE}
+dane$heartDisease <- as.factor(dane$heartDisease)
+# Podział danych
+set.seed(123)
+ind <- sample(2, nrow(dane), replace = TRUE, prob = c(0.7, 0.3))
+train_set <- dane[ind==1,]
+test_set <- dane[ind==2,]
+
+test_set <- test_set[,-c(3,10,11,12,13)]
+train_set <- train_set[,-c(3,10,11,12,13)]
+```
+
+
+Ze względu na skłonność algorytmów drzew decyzyjnych do przeuczenia się, czyli brakiem zdolności modelu do uogólnienia, co wpływa na niska jakość predykcji. Aby uniknąć nadmiernego dopasowania w trakcie tworzenia drzewa, ważne jest, aby przestrzegać zasady dążenia do konstruowania drzewa o jak najmniejszej złożoności. Popularną metodą zwalczająca zjawisko przeuczenia jest przycinanie drzewa. Najpopularniejsza metoda jest przycinanie wsteczne, polega ono na generowaniu dużego, dobrze dopasowanego do danych drzewa, a następnie usuwanie od dołu najmniej efektywnych gałęzi. Przycinanie drzewa oprócz zwalczania zjawiska przeuczenia, poprawia interpretowalność modelu dla użytkownika oraz zmniejsza złożoność obliczeniową co prowadzi do mniejszego czasu trenowania. W pierwszym kroku budujemy jak najbardziej rozbudowane drzewo (cp=0), a nastepnie przycinamy je za pomoca poziomu cp wyznaczonego na podstawie minimalizowania błędu walidacji krzyżowej.
+
+```{r}
+
+#Hyperparameter Tuning training with mlr
+getParamSet("classif.rpart")
+traintask <- makeClassifTask(
+  data=train_set, 
+  target="heartDisease"
+)
+# Define Grid
+control_grid = makeTuneControlGrid()
+# Define Cross Validation
+resample = makeResampleDesc("CV",iter = 5,predict = "both")
+# Define Measure
+measure = acc
+learner <- makeLearner("classif.rpart", predict.type = "prob", parms = list(split = "information"))
+
+param_grid <- makeParamSet( 
+  makeDiscreteParam("maxdepth", values=2:7),
+  makeDiscreteParam("cp", values = 0),
+  makeDiscreteParam("minsplit", values=c(2,5,10,15,20)),
+  makeDiscreteParam('xval',value =10)
+)
+```
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+dt_tuneparam_multi <- tuneParams(learner=learner, 
+                                 task=traintask, 
+                                 resampling = resample,
+                                 measures = measure,
+                                 par.set=param_grid, 
+                                 control=control_grid, 
+                                 show.info = TRUE)
+```
+
+```{r warning=FALSE}
+# Extracting best Parameters from Multi Search
+best_params = setHyperPars( 
+  makeLearner("classif.rpart", predict.type = "prob"), 
+  par.vals = dt_tuneparam_multi$x
+)
+
+best_model_multi <- mlr::train(best_params, traintask)
+best_tree_model <- best_model_multi$learner.model
+rpart.plot(best_tree_model)
+predicted2 <- predict(best_tree_model, newdata = test_set, type = "class")
+confusionMatrix(predicted2, test_set$heartDisease)
+
+#przycinanie 
+best_tree_model$cptable
+best_cp <- best_tree_model$cptable[which.min(best_tree_model$cptable[,"xerror"]),"CP"]
+plotcp(best_tree_model)
+
+# Teraz możemy przyciąć nasze drzewo
+pruned_tree1 <- prune(best_tree_model, cp = 0.528169014)
+pruned_tree2 <- prune(best_tree_model, cp = 0.049295775)
+pruned_tree3 <- prune(best_tree_model, cp = 0.017605634)
+pruned_tree4 <- prune(best_tree_model, cp = 0.000000000)
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree1, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree1, newdata = test_set, type = "class")
+confusionMatrix(predicted4, test_set$heartDisease)
+
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree2, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree2, newdata = test_set, type = "class")
+confusionMatrix(predicted4, test_set$heartDisease)
+
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree3, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree3, newdata = test_set, type = "class")
+confusionMatrix(predicted4, test_set$heartDisease)
+
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree4, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree4, newdata = test_set, type = "class")
+confusionMatrix(predicted4, test_set$heartDisease)
+```
+
+Poziom przycięcia drzewa sprawdziliśmy dla czterach róznych wariantów.
+Pierwszy sprawdzony wariant zawierał brak przycięcia drzewa (cp=0).
+Kolejne warianty zawierały różne wartości przycięcia drzewa (cp=0.52816 , cp=0.04929 i cp=0.0176).
+Pierwszym wnioskiem wartym odnotowania jest wartość parametru accuracy.
+Podobne wartości dla zbioru testowego i treningowego dla wszystkich wariantów, świadczą że nie wsytąpiło zjawisko przeuczenia.
+Analizując wyniki otrzymane dla parametrów accuracy, sensitivity i specificity, głównie kierując się drugim parametrem,
+możemy stwierdzić, że najlepsze wyniki otrzymaliśmy dla braku przycięcia (sen=0.8051,spec=0.9032), przy zaznaczeniu, że dla wariantów wartości parametrów były zbliżone.
+
+#### **Weryfikacja jak wybór reguły klasyfikacyjnej (indeks Giniego, entropia) wpływa na uzyskiwane wyniki.**
+
+Kryterium podziału służy do znalezienia optymalnego podziału zbioru w węźle, w taki sposób aby zwiększyć jednorodność klas, i poprawić zdolność do predykcji. Kryterium podziału określane tez testem związane jest z atrybutami naszego modelu oraz przyjmowanymi przez nie wartościami. Metody które możemy wykorzystać do podziału w drzewach klasyfikacyjnych to: Współczynnik Giniego oraz entropia.
+
+###### **Współczynnik Giniego**
+
+```{r}
+#Hyperparameter Tuning training with mlr
+getParamSet("classif.rpart")
+
+traintask <- makeClassifTask(
+  data=train_set, 
+  target="heartDisease"
+)
+# Define Grid
+control_grid = makeTuneControlGrid()
+# Define Cross Validation
+resample = makeResampleDesc("CV",iter = 5,predict = "both")
+# Define Measure
+measure = acc
+learner <- makeLearner("classif.rpart", predict.type = "prob", parms = list(split = "gini"))
+
+param_grid <- makeParamSet( 
+  makeDiscreteParam("maxdepth", values=2:7),
+  makeDiscreteParam("cp", values = 0),
+  makeDiscreteParam("minsplit", values=c(2,5,10,15,20)),
+  makeDiscreteParam('xval',value =10)
+)
+```
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+dt_tuneparam_multi <- tuneParams(learner=learner, 
+                                 task=traintask, 
+                                 resampling = resample,
+                                 measures = measure,
+                                 par.set=param_grid, 
+                                 control=control_grid, 
+                                 show.info = TRUE)
+```
+
+```{r warning=FALSE}
+# Extracting best Parameters from Multi Search
+best_params = setHyperPars( 
+  makeLearner("classif.rpart", predict.type = "prob"), 
+  par.vals = dt_tuneparam_multi$x
+)
+
+best_model_multi <- mlr::train(best_params, traintask)
+best_tree_model <- best_model_multi$learner.model
+
+rpart.plot::rpart.plot(best_tree_model)
+predicted2 <- predict(best_tree_model, newdata = test_set, type = "class")
+
+confusionMatrix(predicted2, test_set$heartDisease)
+
+probabilities <- predict(best_tree_model, newdata = test_set, type = "prob")[,2]
+roc_obj <- roc(test_set$heartDisease, probabilities)
+auc <- round(auc(test_set$heartDisease, probabilities),4)
+```
+```{r}
+# Przycinanie 
+best_tree_model$cptable
+best_cp <- best_tree_model$cptable[which.min(best_tree_model$cptable[,"xerror"]),"CP"]
+```
+```{r echo=FALSE}
+plotcp(best_tree_model)
+```
+```{r}
+# Teraz możemy przyciąć nasze drzewo
+pruned_tree <- rpart::prune(best_tree_model, cp = best_cp)
+print(pruned_tree)
+rpart.plot(pruned_tree,roundint = FALSE)
+
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree, newdata = test_set, type = "class")
+confusionMatrix(predicted4, test_set$heartDisease)
+```
+
+###### **Entropia**
+```{r}
+#Hyperparameter Tuning training with mlr
+getParamSet("classif.rpart")
+traintask <- makeClassifTask(
+  data=train_set, 
+  target="heartDisease"
+)
+# Define Grid
+control_grid = makeTuneControlGrid()
+# Define Cross Validation
+resample = makeResampleDesc("CV",iter = 5,predict = "both")
+# Define Measure
+measure = acc
+learner <- makeLearner("classif.rpart", predict.type = "prob", parms = list(split = "information"))
+
+param_grid <- makeParamSet( 
+  makeDiscreteParam("maxdepth", values=2:7),
+  makeDiscreteParam("cp", values = 0),
+  makeDiscreteParam("minsplit", values=c(2,5,10,15,20)),
+  makeDiscreteParam('xval',value =10)
+)
+```
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+dt_tuneparam_multi <- tuneParams(learner=learner, 
+                                 task=traintask, 
+                                 resampling = resample,
+                                 measures = measure,
+                                 par.set=param_grid, 
+                                 control=control_grid, 
+                                 show.info = TRUE)
+```
+
+```{r warning=FALSE}
+# Extracting best Parameters from Multi Search
+best_params = setHyperPars( 
+  makeLearner("classif.rpart", predict.type = "prob"), 
+  par.vals = dt_tuneparam_multi$x
+)
+
+best_model_multi <- mlr::train(best_params, traintask)
+best_tree_model <- best_model_multi$learner.model
+rpart.plot(best_tree_model)
+predicted2 <- predict(best_tree_model, newdata = test_set, type = "class")
+confusionMatrix(predicted2, test_set$heartDisease)
+
+probabilities <- predict(best_tree_model, newdata = test_set, type = "prob")[,2]
+roc_obj <- roc(test_set$heartDisease, probabilities)
+auc <- round(auc(test_set$heartDisease, probabilities),4)
+
+#przycinanie 
+best_tree_model$cptable
+best_cp <- best_tree_model$cptable[which.min(best_tree_model$cptable[,"xerror"]),"CP"]
+plotcp(best_tree_model)
+# Teraz możemy przyciąć nasze drzewo
+pruned_tree <- prune(best_tree_model, cp = best_cp)
+print(pruned_tree)
+
+rpart.plot(pruned_tree,roundint = FALSE)
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree, newdata = test_set, type = "class")
+confusionMatrix(predicted4, test_set$heartDisease)
+```
+
+W badaniu jak wybór kryterium podziału wpływa na uzyskiwane wyniki, zbadane zostały dwa przypadki dla reguł: indeks Giniego i entropia.
+Wyniki otrzymane dla zbiorów testowych dla parametru sensitivity dały nam dokładnie ten sam wynik.
+Wynosi 0,8051, co oznacza, że 80,51% prawdziwie pozytywnych przypadków zostało wykrytych.
+W celu decyzji, która reguła będzie lepsza zwracamy uwagę na parametry specificity i accuracy.
+Dla indeksu Giniego Specificity wynosi 0,8871, co oznacza, że 88,71% prawdziwie negatywnych przypadków zostało poprawnie sklasyfikowanych (dla entropii mniej 0,8468).
+Również wartość accuracy jest lepsza dla Indeksu Giniego.
+**Podsumowując, na podstawie tych wyników wydaje się, że wybór klasyfikatora opartego na indeksie Giniego może być lepszy dla tego konkretnego problemu klasyfikacji w porównaniu do klasyfikatora opartego na entropii.**
+
+
+#### **Wybór parametrów, dla których naszym zdaniem uzyskano najlepsze drzewo.**
+```{r}
+#Hyperparameter Tuning training with mlr
+getParamSet("classif.rpart")
+traintask <- mlr::makeClassifTask(
+  data=train_set, 
+  target="heartDisease"
+)
+# Define Grid
+control_grid = mlr::makeTuneControlGrid()
+# Define Cross Validation
+resample = makeResampleDesc("CV",iter = 5,predict = "both")
+# Define Measure
+measure = acc
+learner <- mlr::makeLearner("classif.rpart", predict.type = "prob", parms = list(split = "gini"))
+
+param_grid <- makeParamSet( 
+  makeDiscreteParam("maxdepth", values=2:7),
+  makeDiscreteParam("cp", values = 0),
+ makeDiscreteParam("minsplit", values=1:30),
+  makeDiscreteParam('xval',value =10)
+)
+
+```
+
+```{r eval=FALSE}
+dt_tuneparam_multi <- tuneParams(learner=learner, 
+                                 task=traintask, 
+                                 resampling = resample,
+                                 measures = measure,
+                                 par.set=param_grid, 
+                                 control=control_grid, 
+                                 show.info = TRUE)
+```
+
+```{r warning=FALSE}
+# Extracting best Parameters from Multi Search
+best_params = setHyperPars( 
+  makeLearner("classif.rpart", predict.type = "prob"), 
+  par.vals = dt_tuneparam_multi$x
+)
+
+best_model_multi <- mlr::train(best_params, traintask)
+best_tree_model <- best_model_multi$learner.model
+rpart.plot(best_tree_model)
+predicted2 <- predict(best_tree_model, newdata = test_set, type = "class")
+confusionMatrix(predicted2, test_set$heartDisease)
+
+probabilities <- predict(best_tree_model, newdata = test_set, type = "prob")[,2]
+roc_obj <- roc(test_set$heartDisease, probabilities)
+auc <- round(auc(test_set$heartDisease, probabilities),4)
+
+#przycinanie 
+best_tree_model$cptable
+best_cp <- best_tree_model$cptable[which.min(best_tree_model$cptable[,"xerror"]),"CP"]
+plotcp(best_tree_model)
+# Teraz możemy przyciąć nasze drzewo
+pruned_tree <- prune(best_tree_model, cp = best_cp)
+print(pruned_tree)
+
+rpart.plot(pruned_tree,roundint = FALSE)
+#testowanie przycietego drzewa na zbiorze treningowym 
+predicted3 <- predict(pruned_tree, newdata = train_set, type = "class")
+confusionMatrix(predicted3, train_set$heartDisease)
+# Testowanie przyciętego drzewa na zbiorze testowym
+predicted4 <- predict(pruned_tree, newdata = test_set, type = "class")
+cmtree <- confusionMatrix(predicted4, test_set$heartDisease)
+cmtree
+
+#sprawdzenie ktora zmienna ma najwieksze znaczenie 
+importance <- varImp(pruned_tree)
+print(importance)
+
+#do wykresu
+probabilities <- predict(pruned_tree, newdata = test_set, type = "prob")[,2]
+roc_obj <- roc(test_set$heartDisease, probabilities)
+auc <- round(auc(test_set$heartDisease, probabilities),4)
+
+# Rysowanie krzywej ROC
+ggroc(roc_obj,colour = 'steelblue',size=2,legacy.axes = TRUE) +
+  geom_abline(linetype = "dashed") +
+  theme(panel.border = element_rect(color = 'black',fill = NA,size = 1),
+        panel.background = element_rect(fill='gray95'),
+        plot.background = element_rect(color = 'black', size = 1) 
+  )+
+  ggtitle(paste0('Krzywa ROC ', '(AUC = ', auc, ')')) +
+  labs(x = "1 - Swoistość",
+       y = "Swoistość")
+```
+
+Najlepsze wyniki zostały otrzymany dla parametrów:kryterium podziału: gini, maxdepth = 4, minsplit = 11, cp = 0. W tym przypadku nie było potrzebne przyciecie drzewa ponieważ najmniejszy bład w walidacji krzyżowej był dla cp = 0. Najlepszy model osiągnał na zbiorze testowym dokładność:  0.8554, czułość: 0.8051, specyficznosc: 0.9032 
+
+# **3. Zastosowanie rozszerzenia drzew decyzyjnych - bagging.**
+<br>
+
+#### **Zweryfikować jak liczba wykorzystywanych drzew wpływa na uzyskiwane wyniki.**
+
+```{r}
+dane <-  read.csv("Heart2.csv", sep=";")
+dane$heartDisease <- as.factor(dane$heartDisease)
+# Podział danych
+set.seed(123)
+ind <- sample(2, nrow(dane), replace = TRUE, prob = c(0.7, 0.3))
+train_set <- dane[ind==1,]
+test_set <- dane[ind==2,]
+
+mfinal_values <- c(50, 100, 150,200,250)
+
+results <- list()
+
+for (mfinal in mfinal_values) {
+  model <- bagging(heartDisease ~ ., data = train_set, mfinal = mfinal)
+  pred <- predict.bagging(model, newdata = test_set)
+  pred1 <- as.factor(pred$class)
+  cm <- confusionMatrix(pred1, test_set$heartDisease)
+  
+  results[[as.character(mfinal)]] <- list(mfinal = mfinal, cm = cm)
+}
+
+# Znajdź najlepszy model
+best_mfinal <- mfinal_values[which.max(sapply(results, function(x) x$cm$overall["Accuracy"]))]
+best_model <- results[[as.character(best_mfinal)]]
+
+# Wyświetlenie wyników
+print(best_model$cm)
+print("Najlepsza wartość mfinal:")
+print(best_model$mfinal)
+```
+W naszym przypadku najlepsze wyniki otrzymaliśmy dla wartości 200 drzew, otrzymując dokładność na poziomie 0,8719 i wartość sensitivity na poziomie 0,8390, co jest logicznym zdarzeniem, gdyż można przypuszczać, że wraz z wzrostem liczby drzew wyniki powinny być lepsze, lecz może to powodować znaczne zwiększenie czasu potrzebnego do wykonania obliczeń.
+
+#### **Weryfikacja jak zmiana liczby obserwacji wykorzystywanych do budowy jednego drzewa wpływa na uzyskiwane wyniki.**
+
+Nie potrafiliśmy znaleźć funkcji w dla metody baggingu która by posiadała argument do zmiany liczby obserwacji wykorzystywanych do budowy drzewa, można by to zrobić ręcznie ale nie jesteśmy pewni czy to by działało w taki sam sposób. 
+
+
+#### **Wybór parametrów, dla których naszym zdaniem uzyskano najlepsze wyniki po zastosowaniu baggingu.**
+
+```{r}
+param_grid <- expand.grid(iterations = c(50, 100, 150,200),
+                          maxdepth = c(3,5,7,10),
+                          minsplit = c(5,10,15,20,25))
+
+results <- list()
+# Przeszukiwanie siatki parametrów
+for (i in 1:nrow(param_grid)) {
+  iterations <- param_grid$iterations[i]
+  maxdepth <- param_grid$maxdepth[i]
+  minsplit <- param_grid$minsplit[i]
+  
+  model <- bagging(heartDisease ~ ., data = train_set, mfinal = iterations,
+                   control = rpart.control(maxdepth = maxdepth, minsplit = minsplit))
+  
+  pred <- predict.bagging(model, newdata = test_set)
+  pred1 <- as.factor(pred$class)
+  
+  cm <- confusionMatrix(pred1, test_set$heartDisease)
+  
+  results[[i]] <- list(iterations = iterations, maxdepth = maxdepth, minsplit = minsplit, cm = cm)
+}
+
+# Znajdź najlepszy model
+best_model <- results[[which.max(sapply(results, function(x) x$cm$overall["Accuracy"]))]]
+
+# Wyświetlenie wyników
+print(best_model$cm)
+print(best_model$iterations)
+print(best_model$maxdepth)
+print(best_model$minsplit)
+```
+
+# **4. Porównianie wyników uzyskanych za pomocą prostego drzewa decyzyjnego oraz baggingu. Wskazanie wad i zalet.**
+<br>
+
+```{r}
+#najlepszy model drzewa decyzyjne 
+print(cmtree)
+
+#najlepszy model bagging 
+print(best_model$cm)
+```
+
+Porownujac wyniki otrzymane w wyniku algorytmu drzewa decyzyjnego i baggingu mozna stwierdzic, ze w przypadku naszego zestawu danych lepiej 
+działa algorytm baggingu, ktory osiagnał lepsze wyniki w dokladnosci(0.8595 do 0.8843) swoistosci(0.9113 do 0.9355)  i czułosci(0.8051 do 0.8305).
+
+### Proste drzewo decyzyjne:
+
+**Zalety:**
+
+1.**Prostota interpretacji**: Proste drzewa decyzyjne są intuicyjne i łatwe do zrozumienia. Mogą być używane do wyjaśnienia decyzji podejmowanych przez model, co jest ważne w przypadku zrozumienia procesu podejmowania decyzji.
+
+2.**Przechwytywanie interakcji między zmiennymi**: Drzewa decyzyjne mogą skutecznie wykrywać i modelować interakcje między zmiennymi wejściowymi, co jest trudniejsze do osiągnięcia w niektórych innych modelach.
+
+3.**Odporność na dane o niskiej jakości**: Drzewa decyzyjne potrafią radzić sobie z danymi zawierającymi braki, a także z danymi nieliniowymi i niemonotonicznymi.
+
+**Wady:**
+
+1.**Skłonność do przetrenowania**: Proste drzewa decyzyjne mają tendencję do tworzenia zbyt złożonych modeli, które doskonale dopasowują się do danych treningowych, co może prowadzić do przetrenowania.
+
+2.**Nieefektywność w rozwiązywaniu bardziej skomplikowanych problemów**: Proste drzewa decyzyjne mogą być niewystarczające w bardziej skomplikowanych zadaniach klasyfikacji lub regresji, gdzie struktura danych jest bardziej złożona.
+
+### Bagging:
+
+**Zalety:**
+
+1.**Redukcja wariancji**: Bagging polega na łączeniu wielu modeli (np. drzew decyzyjnych) w celu zmniejszenia wariancji. Działa dobrze w przypadku modeli, które są skłonne do przetrenowania, co prowadzi do lepszych wyników na zbiorze testowym.
+
+2.**Ogólna wydajność**: Bagging może poprawić ogólną wydajność modelu poprzez wygładzenie wyników i poprawę stabilności.
+
+3.**Zwiększenie tolerancji na szum w danych**: Bagging może pomóc w radzeniu sobie z szumem w danych, ponieważ agregowanie wyników wielu modeli pomaga w redukcji wpływu odstających obserwacji.
+
+**Wady:**
+
+1.**Strata interpretowalności**: Bagging utrudnia interpretację modelu, ponieważ jest to połączenie wielu mniejszych modeli. Skomplikowane modele ensemble są trudniejsze do zrozumienia.
+
+2.**Wymagana większa ilość danych i zasobów obliczeniowych**: Bagging wymaga trenowania wielu modeli, co może być bardziej czasochłonne i wymaga więcej zasobów obliczeniowych w porównaniu do pojedynczego drzewa decyzyjnego.
+
+
+Podsumowując, zarówno proste drzewa decyzyjne, jak i bagging mają swoje miejsce w narzędziach uczenia maszynowego, a wybór między nimi zależy od konkretnego problemu, dostępnych zasobów i preferencji interpretacyjnych. Bagging jest szczególnie przydatny w przypadku modeli o dużej wariancji, podczas gdy proste drzewo decyzyjne może być stosowane w prostszych zadaniach lub tam, gdzie interpretowalność modelu jest priorytetem.
+
+

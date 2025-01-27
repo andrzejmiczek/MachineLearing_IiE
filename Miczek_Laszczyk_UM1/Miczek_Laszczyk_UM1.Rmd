@@ -1,0 +1,523 @@
+---
+title: "Sprawozdanie 1"
+author: "Andrzej Miczek & Jakub Laszczyk"
+date: "10.10.2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## **Przygotowanie zbioru danych** 
+
+Wczytanie bibliotek, zamiana zmiennych kategorycznych, standaryzacja oraz bilansowanie danych.
+
+```{r}
+library(pROC)
+library(caret)
+dane <- read.csv("stroke.csv", sep=";")
+
+# usuwanie brakow danych
+
+sum(sapply(dane, function(x) sum(is.na(x))))
+dane <-na.omit(dane)
+
+# zamiana zmiennych kategorycznych 
+# gender i evermarried na wartości zero-jednykowe 
+
+dummy_data <- dummyVars(~ work_type, data = dane)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane))
+dane1 <- cbind(dane, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ Residence_type, data = dane1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane1))
+dane1 <- cbind(dane1, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ smoking_status, data = dane1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane1))
+dane1 <- cbind(dane1, dummy_data_transformed)
+
+dane1$gender <- ifelse(dane1$gender == "Male", 1, 0)
+dane1$ever_married <- ifelse(dane1$ever_married == "Yes", 1, 0)
+dane1$Stroke <- dane1$stroke
+
+dane1 <- dane1[,-c(6,7,10,11)]
+str(dane1)
+table(dane1$Stroke)
+dane1$Stroke <- factor(dane1$Stroke,levels = c("0", "1"), labels = c("nie", "tak"))
+str(dane1)
+
+# bilansowanie danych 
+dane1 <- dane1[1:1000,] 
+
+# standaryzacja danych
+scaled_data <- as.data.frame(scale(dane1[,-19]))
+scaled_data$Stroke <- dane1$Stroke
+```
+
+Podział na zbior testowy i treningowy.
+
+```{r}
+# bez standaryzacji
+
+set.seed(123)
+ind <- sample(2, nrow(dane1), replace = TRUE, prob = c(0.7, 0.3))
+train_set <- dane1[ind==1,]
+test_set <- dane1[ind==2,]
+# ze standaryzacja
+
+set.seed(123)
+ind <- sample(2, nrow(scaled_data), replace = TRUE, prob = c(0.7, 0.3))
+train_set2 <- scaled_data[ind==1,]
+test_set2 <- scaled_data[ind==2,]
+```
+
+## **Zadanie 1. Pytania wstępne** 
+
+**1. W jakim celu dokonuje się podziału zbioru danych na zbiór uczący i testowy? W jaki sposób ten podział powinien zostać wykonany?**
+
+Podziału na zbiór treningowy i testowy dokonuje się w celu trenowania i testowania modelu. Model trenuje się na zbiorze treningowym, w tym etapie dopasowywuje się wartości hiperparametrów, należy zwrócić uwagę na to aby model nie był zbyt dopasowany do danych treningowych co może prowadzić do mniejszej zdolności do generalizacji oraz słabszej predykcji na zbiorze testowym. Odpowiednio wytrenowany model sprawdza się na zbiorze testowym który nie był wcześniej znany dla naszego modelu. Nie ma określonego sposobu na dokonywanie podziału na zbiór testowy i treningowy, najczęściej dokonuje się go w proporcjach 70:30 lub 80:20.
+
+**2. Czym jest macierz błędu?**
+
+Macierz pomyłek utworzona jest  poprzez zestawienie klasy prognozowanej i klasy faktycznie zaobserwowanej w wyniku czego powstają 4 przypadki:
+
+* True-Positive (TP - prawdziwie pozytywne) to przypadki, gdy model przewiduje 
+pozytywną klasę, a w rzeczywistości została ona zaobserwowana jako pozytywna.
+* True-Negative (TN – prawdziwie negatywna) to przypadki, gdy model 
+przewiduje negatywną klasę, a w rzeczywistości została ona zaobserwowana jako 
+negatywna.
+* False-Positive (FP – fałszywie pozytywna) to przypadki, gdy model przewiduje 
+pozytywną klasę, a w rzeczywistości została ona zaobserwowana jako negatywna.
+* False-Negative (FN – fałszywie negatywna) to przypadki, gdy model przewiduje 
+negatywną klasę, a w rzeczywistości została ona zaobserwowana jako 
+pozytywna.
+
+
+**3. Jaka jest różnica między dokładnością, czułością a specyficznością? Która z tych miar i w jakim przypadku jest ważniejsza. Podać przykłady.**
+
+Na podstawie macierzy pomyłek można utworzyć cztery miary jakości 
+klasyfikacji:
+
+* **Czułość** (ang. sensitivity, recall) określana również jako odsetek prawdziwie
+pozytywnych (ang. true positive rate, TPR) – mierzy skuteczność modelu 
+w przewidywaniu rzeczywiście pozytywnych przypadków spośród wszystkich 
+zaobserwowanych pozytywnych przypadków 
+𝑇𝑃𝑅 =𝑇𝑃/𝑃=𝑇𝑃/(𝑇𝑃+𝐹𝑁)
+ 
+* **Specyficzność** (ang. specificity, SPC) określana również jako odsetek prawdziwie
+negatywnych (ang. true negative rate, TNR) - mierzy skuteczność modelu 
+w przewidywaniu rzeczywiście negatywnych przypadków spośród wszystkich 
+zaobserwowanych negatywnych przypadków
+𝑇𝑁𝑅 = 𝑇𝑁/𝑁=𝑇𝑁/(𝐹𝑃+𝑇𝑁)
+
+* **Dokładność** (ang. accuracy, ACC) - mierzy ona skuteczność modelu 
+w identyfikowaniu prawdziwych negatywnych wyników spośród wszystkich 
+przewidywanych jako negatywne.
+𝐴𝐶𝐶 =(𝑇𝑃+𝑇𝑁)/(𝑃+𝑁)
+
+W zależności od badanego problemu różne miary mogą być najważniejsze, np jeżeli chcemy przewidzieć chorobę serca najważniejszą miarą powinna być czułość dlatego, że priorytetem jest minimalizacja fałszywych negatywnych wyników. Oznacza to, że zależy nam na tym, aby jak najmniej przypadków rzeczywistych chorób serca zostało pominiętych przez model. Dokładność może być najważniejsza w sytuacji kiedy liczy się dla nas jak największa liczba poprawnie sklasyfikowanych przypadków oraz koszty obu błędów są do siebie zbliżone, np w przypadku klasyfikacji typu produktów w sklepie. Może być ona tez myląca w przypadku niezbilansowanego zbioru danych poniewaz jezeli mamy w zbiorze np 80% pozytywnych przypadków, a 20% negatywnych to dokładność 80% wcale nie sugeruje że nasz model dobrze klasyfikuje nowe przypadki, może on równie dobrze klasyfikować wszystkie przypadki jako pozytywne. Na specyficzność zwracamy uwagę jeżeli jest wysoki koszt przypadków fałszywie negatywnych, np w badaniach antydopingowych kiedy fałszywie pozytywny wynik może zniszczyć karierę sportowca.  
+
+
+## **Zadanie 2. Metoda KNN** 
+
+**1. Jak działa metoda k-najbliższych sąsiadów?**
+
+Metoda k-najbliższych sąsiadów (k-NN, od ang. k-Nearest Neighbors) to prosty i intuicyjny algorytm używany do klasyfikacji i regresji. Algorytm ten opiera się na założeniu, że podobne dane znajdują się blisko siebie w przestrzeni cech. Działa on następująco: W pierwszym kroku algorytmu, dla każdego punktu w zbiorze treningowym, obliczane są odległości między tym punktem a wszystkimi innymi punktami w zbiorze treningowym. Najczęściej używa się miary odległości euklidesowej, choć można stosować inne miary odległości w zależności od rodzaju danych i problemu. Algorytm k-NN wymaga określenia parametru k, który określa liczbę najbliższych sąsiadów branych pod uwagę przy klasyfikacji lub regresji. Wybór k jest ważny, ponieważ wpływa na wydajność i dokładność algorytmu. 
+Aby dokonać klasyfikacji, dla nowego punktu, który chcemy sklasyfikować, algorytm identyfikuje k najbliższych sąsiadów tego punktu na podstawie obliczonych odległości. Następnie zlicza, ile z tych sąsiadów należy do każdej klasy. Klasa, która ma największą liczbę sąsiadów, zostaje przypisana nowemu punktowi.
+
+**2. Czym jest k w metodzie KNN? Jak dobrać odpowiednią wartość k?**
+
+W metodzie KNN, "k" oznacza liczbę najbliższych sąsiadów, którzy są brani pod uwagę przy dokonywaniu klasyfikacji lub regresji dla nowego punktu danych. Jest to jeden z najważniejszych hiperparametrów w algorytmie KNN, a jego wybór ma istotny wpływ na wyniki modelu. Można przedstawić kilka czynników, które warto wziąć pod uwagę przy doborze odpowiedniej wartości "k":
+
+**Liczba sąsiadów w stosunku do liczby danych**: W ogólności, im większy zbiór danych, tym większa liczba sąsiadów "k" jest odpowiednia. Dla małych zbiorów danych, mała wartość "k" może działać dobrze, podczas gdy dla dużych zbiorów danych potrzeba większej liczby sąsiadów, aby uzyskać stabilne wyniki.
+
+**Charakterystyka danych**: Warto zwrócić uwagę na rozkład danych i ich strukturę. Jeśli dane są gęsto zagęszczone w przestrzeni cech, mniejsza wartość "k" może być wystarczająca do dokładnej klasyfikacji lub regresji. W przypadku rozproszonych danych większa wartość "k" może być bardziej odpowiednia.
+
+**Overfitting vs. underfitting**: Mała wartość "k" (np. 1 lub 2) może prowadzić do nadmiernego dopasowania (overfitting), gdzie model staje się zbyt wrażliwy na szum w danych i może źle generalizować. Duża wartość "k" może prowadzić do niedopasowania (underfitting), gdzie model jest zbyt uproszczony i nie jest w stanie uchwycić istotnych wzorców w danych. Ważne jest znalezienie zrównoważonej wartości "k", która minimalizuje błąd generalizacji.
+
+**Analiza krzywej walidacyjnej**: Przydatnym narzędziem do doboru odpowiedniej wartości "k" jest analiza krzywej walidacyjnej (validation curve). Możesz przetestować różne wartości "k" i monitorować wydajność modelu na zbiorze walidacyjnym. Na podstawie tych wyników możesz wybrać optymalną wartość "k".
+
+**Reguła pierwiastka z liczby danych**: Jednym z prostych podejść jest wybór wartości "k" jako pierwiastka kwadratowego z liczby danych. Jednakże jest to tylko ogólna wskazówka, a ostateczny wybór zależy od charakterystyki problemu.
+
+**Eksperymentowanie**: Ostateczny wybór wartości "k" może wymagać eksperymentowania i przetestowania różnych wartości. Ważne jest, aby przeprowadzić odpowiednie eksperymenty i ocenić wydajność modelu na zbiorze walidacyjnym.
+
+Podsumowując, wybór odpowiedniej wartości "k" w metodzie k-NN jest problemem hiperparametrycznym i zależy od konkretnego problemu oraz charakterystyki danych. Dobre dostosowanie wartości "k" jest kluczowe dla uzyskania dobrych wyników modelu KNN, dlatego warto poświęcić czas na eksperymenty i analizę.
+
+
+**3. Czy k powinno być liczbą parzystą, nieparzystą, czy nie ma to znaczenia? Odpowiedź uzasadnić przeprowadzając odpowiednią symulację.**
+
+W poniższym kodzie zostaly sprawdzone wartosci k z przedziału od 1 do 15, widzimy ze w naszym przypadku wraz ze wzroste k zwieksza sie roc i sensitivity, a zmniejsza sie specyficity. Na podstawie naszego przypadku możemy wysunąć wniosek, że nie ma znaczenia, czy liczba k jest akurat liczbą parzystą lub liczbą nieparzysta, co jest uzasadnione sutyacją gdy przy zwiększeniu wartości k zwiększają się rozpatrywane wartości wyników.
+
+```{r}
+# KNN
+trControl <- trainControl(method = "repeatedcv", 
+                          number = 10,  
+                          repeats = 3,  
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary) 
+set.seed(1234)
+fit <- train(Stroke ~ ., 
+             data = train_set,
+             tuneGrid   = expand.grid(k = 1:15),
+             method = "knn",
+             tuneLength = 20,
+             metric     = "ROC", 
+             trControl = trControl,
+             preProc = c("center", "scale"))  
+
+
+fit
+plot(fit)
+varImp(fit)
+
+pred <- predict(fit, newdata = test_set )
+confusionMatrix(pred, test_set$Stroke, positive = 'tak' )
+```
+
+
+**4. Czy standaryzacja danych jest wymagana w przypadku wykorzystywania metody k-najbliższych sąsiadów? Dlaczego tak/nie? Zastosować metodę KNN na danych bez standaryzacji i ze standaryzacją. Porównać uzyskane wyniki.**
+
+Standaryzacja danych może mieć wpływ na wydajność algorytmu k-NN, ale nie jest zawsze wymagana. Decyzja o standaryzacji zależy od charakterystyki danych i miary odległości używanej w algorytmie KNN jednak ponieważ KNN opiera się na obliczaniu odległości między punktami, ważne jest, aby nasze funkcje używały spójnej skali. W przeciwnym razie te o mniejszej skali będą dominować, a te o większej skali nie będą miały prawie żadnego wpływu. 
+
+```{r}
+# K-NN
+trControl <- trainControl(method = "repeatedcv", 
+                          number = 10,  
+                          repeats = 3,  
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary)  
+set.seed(1234)
+fit <- train(Stroke ~ ., 
+             data = train_set2,
+             tuneGrid   = expand.grid(k = 1:15),
+             method = "knn",
+             tuneLength = 20,
+             metric     = "ROC", 
+             trControl = trControl,
+             preProc = c("center", "scale"))  
+
+fit
+plot(fit)
+varImp(fit)
+
+pred <- predict(fit, newdata = test_set2 )
+confusionMatrix(pred, test_set2$Stroke, positive = 'tak' )
+```
+
+W naszym przypadku algorytm oparty na danych zestandaryzowanych dał takie same wyniki jak w przypadku danych niepoddanych standaryzacji.
+
+
+**5. W jaki sposób metoda KNN może zostać wykorzystana do rozwiązania problemu regresji?**
+
+Metoda KNN może być wykorzystana do rozwiązania problemu regresji. Aby przekształcić KNN na algorytm regresji, można zastosować prostą modyfikację. Zamiast przewidywać klasę, metoda k-NN będzie przewidywać numeryczną wartość lub zmienną ciągłą.:Aby przewidzieć wartość regresji dla nowego punktu, można obliczyć średnią (lub ważoną średnią) wartość docelową dla k najbliższych sąsiadów. Innym podejściem jest wybór mediany lub innej statystyki opisowej jako przewidywanej wartości regresji.
+
+**6. Czy wielkość zbioru danych ma znaczenie w przypadku tej metody? Sprawdzić, czy liczba obserwacji wpływa na uzyskiwane wyniki.**
+
+Ponieważ w dane były źle zbilansowane zdecydowalismy sie juz na poczatku na zmniejszenie ilosci obserwacji tak aby otrzymywane wyniki były interpretowalne. Możemy na tej podstawie wysunąć wniosek, że liczba obserwacji może mieć wpływ na uzyskiwane wyniki. W naszym przypadku zwiększenie ilości obserwacji powoduje, że predykcja jest bardzo, a wręcz całkowicie niepoprawna. Trzeba przy tym zaznaczyć, że większe znaczenie ma zbalansowanie danych. Większa liczba obserwacji odpowiednio zbalansowanych powinna dać lepsze wyniki, lecz trzeba mieć na uwadze, że zbyt duża ilość może skomplikować obliczenia.
+
+```{r}
+# KNN
+trControl <- trainControl(method = "repeatedcv", 
+                          number = 10,  
+                          repeats = 3,  
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary)  
+set.seed(1234)
+fit <- train(Stroke ~ ., 
+             data = train_set2,
+             tuneGrid   = expand.grid(k = 1:15),
+             method = "knn",
+             tuneLength = 20,
+             metric     = "ROC", 
+             trControl = trControl,
+             preProc = c("center", "scale"))  
+
+fit
+plot(fit)
+varImp(fit)
+
+pred <- predict(fit, newdata = test_set2 )
+confusionMatrix(pred, test_set2$Stroke, positive = 'tak' )
+```
+
+
+**7. Czy w metodzie tej można wykorzystać i jeśli tak, to w jaki sposób zmienne kategoryczne?**
+
+Tak można wykorzystać zmienne kategoryczne, ale konieczne jest odpowiednie przetworzenie tych zmiennych, aby mogły być używane w algorytmie KNN. Zmienne kategoryczne, które nie są numeryczne, muszą być przekształcone na format numeryczny, aby mogły być używane do obliczania odległości między punktami danych. Można to zrobić np za pomocą  kodowania one-hot (dummy variables) które przekształca zmienne kategoryczne w zmienne binarne. Po przekształceniu zmiennych kategorycznych na format numeryczny, można je wykorzystać w algorytmie KNN tak samo, jak zmienne numeryczne. Obliczenia odległości między punktami danych uwzględnią teraz również zmienne kategoryczne. Jednakże, warto zaznaczyć, że przy użyciu kodowania one-hot lub innych technik, wprowadza się dodatkowe wymiary do przestrzeni cech, co może prowadzić do zwiększenia wymiarowości danych i wpłynąć na złożoność obliczeniową.
+
+**8. Jakie są zalety i wady tej metody?**
+
+**Zalety metody KNN:**
+
+* Prostota implementacji: KNN jest stosunkowo prostym algorytmem, który jest łatwy do zrozumienia i zaimplementowania. 
+
+* Brak założeń o rozkładzie danych: KNN nie zakłada żadnego konkretnego rozkładu danych ani liniowej zależności między zmiennymi, co oznacza, że może być używany w różnorodnych rodzajach danych.
+
+* Dostosowywanie się do zmieniających się danych: KNN można łatwo dostosować do zmieniających się danych, ponieważ nie wymaga ponownego trenowania całego modelu. Można po prostu przeliczyć odległości między nowymi danymi a danymi treningowymi.
+
+**Wady metody KNN:**
+
+* Duża złożoność obliczeniowa: KNN może być bardzo kosztowny obliczeniowo, zwłaszcza w przypadku dużych zbiorów danych, ponieważ wymaga obliczenia odległości między wszystkimi punktami danych.
+
+* Czułość na wymiarowość danych: W miarę zwiększania liczby cech (wymiarów) danych, algorytm staje się mniej efektywny i może dojść do problemu przekleństwa wymiarowości (curse of dimensionality), co może pogorszyć wydajność modelu.
+
+* Wpływ szumu i outlierów: KNN jest wrażliwy na obserwacje odstające (outliers) i szum w danych, ponieważ opiera się na odległościach. Jedna lub kilka odstających obserwacji może wpłynąć na wyniki.
+
+* Wpływ wyboru parametru k: Wybór odpowiedniej wartości parametru "k" (liczba sąsiadów) jest kluczowy, i nie istnieje jedna "najlepsza" wartość "k" dla wszystkich problemów. Niewłaściwy wybór "k" może prowadzić do nadmiernego dopasowania lub niedopasowania.
+
+* Kategoryczne i brakujące dane: Obsługa zmiennych kategorycznych i brakujących danych w KNN może być trudniejsza i wymaga specjalnych technik przekształcania i imputacji danych.
+
+
+
+## **Zadanie 3. Metoda KKNN** 
+
+**1. Co odróżnia metodę KKNN od metody KNN?**
+
+Metoda KKNN, w odróżnieniu od tradycyjnej metody KNN, zmienia podejście do uwzględniania sąsiadów przy dokonywaniu prognoz. W KNN wszyscy sąsiedzi mają jednakową wagę niezależnie od odległości, co oznacza, że każdy ma równy wpływ na wynik. Natomiast w KKNN każdemu z k najbliższych sąsiadów można przypisać indywidualną wagę, która może być dostosowana na podstawie różnych czynników, takich jak odległość czy jakość sąsiada. Sąsiedzi z wyższymi wagami mają większy wpływ na prognozę, a ci z niższymi - mniejszy lub żaden wpływ.
+
+**2. Czy w metodzie tej występują ograniczenia dotyczące wyboru wartości k?**
+
+Ograniczenia dotyczące wyboru wartości k w metodzie KKNN i tradycyjnej metodzie KNN) są podobne w pewnym sensie, ale istnieją również pewne różnice związane z uwzględnianiem wag sąsiadów w KKNN - wartość k nadal określa liczbę sąsiadów branych pod uwagę, ale każdemu sąsiadowi przypisuje się indywidualną wagę, co oznacza, że różni sąsiedzi mogą mieć różny wpływ na wynik prognozy. Dla różnych zbiorów danych i problemów może istnieć różna optymalna wartość k, dlatego wartości te należy dostosować do konkretnego przypadku.
+
+**3. Czy wielkość zbioru danych ma znaczenie w przypadku tej metody? Sprawdzić, czy liczba obserwacji wpływa na uzyskiwane wyniki.**
+
+W metodzie KKNN, zbyt mała ilość danych może wpłynąć na ryzyko overfittingu,ponieważ model może być zbyt dostosowany do małej ilości danych. W przypadku bardzo małych zbiorach danych, ponieważ wyniki mogą być niestabilne i trudne do uogólnienia. Optymalna ilość danych zależy od konkretnej sytuacji i problemu, który próbujemy rozwiązać. W naszym przypadku zastosowanie większej liczby obserwacji (mniejszej niż pozbalansowaniu) dało lepsze wyniki.
+
+```{r}
+trControl <- trainControl(method = "repeatedcv", 
+                          number = 10,  
+                          repeats = 1,  
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary)  
+# KKNN
+fit <- train(Stroke ~ ., 
+             data = train_set,
+             method = "kknn",
+             tuneLength = 5,
+             metric     = "ROC", 
+             trControl = trControl,
+             preProc = c("center", "scale"))
+
+
+fit
+plot(fit)
+varImp(fit)
+
+pred <- predict(fit, newdata = test_set )
+confusionMatrix(pred, test_set$Stroke, positive = 'tak' )
+```
+
+
+## **Zadanie 4. Regresja logistyczna** 
+
+**1. Jakie są założenie regresji logistycznej?**
+
+**Linia podziału:** Regresja logistyczna zakłada, że istnieje liniowa granica decyzyjna, która oddziela dwie klasy w przestrzeni cech. Modele regresji logistycznej starają się znaleźć liniowy podział między danymi wejściowymi, który najlepiej oddziela dwie klasy. W praktyce może to oznaczać, że dane można odseparować za pomocą płaszczyzny lub hiperpłaszczyzny w zależności od liczby cech.
+
+**Niezależność cech:** Regresja logistyczna zakłada, że cechy wejściowe są niezależne od siebie. Wpływ każdej cechy na wynik klasyfikacji jest niezależny od innych cech. To założenie może być problematyczne w przypadku, gdy cechy są skorelowane, dlatego warto przeprowadzić analizę cech i ewentualnie zastosować techniki redukcji wymiaru lub selekcji cech.
+
+**Liniowość logitu:** W regresji logistycznej stosuje się logit jako funkcję odnośnie do cech wejściowych. Logit to logarytm szansy (odsetka) przynależności do jednej z klas. Założenie to mówi, że logit jest funkcją liniową cech wejściowych. Oznacza to, że regresja logistyczna zakłada liniową zależność między cechami a logitem.
+
+**Brak wielomianowych interakcji:** Regresja logistyczna zakłada, że nie ma znaczących wielomianowych interakcji między cechami. Jeśli takie interakcje istnieją, to może być konieczne rozważenie bardziej zaawansowanych modeli lub przekształceń cech.
+
+**2. Jak metoda ta radzi sobie ze zmiennymi kategorycznymi?**
+
+Zmienne kategoryczne w regresji logistycznej muszą być przekształcone w sposób umożliwiający ich użycie jako predyktorów w modelu. Najczęściej stosuje się kodowanie kategoryczne, które przekształca zmienne kategoryczne na zmienne binarne lub używa ich jako zmiennej porządkowej.
+
+**3. Czy w przypadku regresji logistycznej konieczna jest standaryzacja danych? Zastosować tę metodę na danych bez standaryzacji i ze standaryzacją. Porównać uzyskane wyniki.**
+
+**bez standaryzacji**
+```{r}
+#regresja logisyczna 
+formula <- Stroke~.
+model <- glm(formula , data = train_set, family = binomial)
+
+#predykcja na zbiorze testowym
+predictions <- predict(model, test_set, type = 'response')
+
+#zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 'tak' , 'nie')
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set$Stroke, positive = 'tak' )
+```
+
+**ze standaryzacja**
+```{r}
+# regresja logisyczna 
+formula <- Stroke~.
+model <- glm(formula , data = train_set2, family = binomial)
+
+# predykcja na zbiorze testowym
+predictions <- predict(model, test_set2, type = 'response')
+
+# zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 'tak' , 'nie')
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set2$Stroke, positive = 'tak' )
+```
+
+W obu przypadkach otrzymano takie same wyniki.
+
+
+**4. Czy wartości odstające mają wpływ na uzyskiwane tą metodą wyniki? Zweryfikować to budując modele w oparciu o różne zestawy danych wejściowych (z wartościami i bez wartości odstających).** 
+
+```{r}
+# Funkcja do wykrywania wartości odstających na podstawie IQR
+detect_outliers_iqr <- function(series) {
+  Q1 <- quantile(series, 0.25, na.rm = TRUE)
+  Q3 <- quantile(series, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  outliers <- (series < lower_bound) | (series > upper_bound)
+  return(outliers)
+}
+
+# Funkcja do wykrywania wartości odstających na podstawie odchylenia standardowego
+detect_outliers_std <- function(series, n_std = 3) {
+  mean_val <- mean(series, na.rm = TRUE)
+  std_val <- sd(series, na.rm = TRUE)
+  lower_bound <- mean_val - n_std * std_val
+  upper_bound <- mean_val + n_std * std_val
+  outliers <- (series < lower_bound) | (series > upper_bound)
+  return(outliers)
+}
+
+remove_outliers <- function(data, method = "IQR") {
+  if (method == "IQR") {
+    outliers <- apply(data, 2, detect_outliers_iqr)
+  } else if (method == "STD") {
+    outliers <- apply(data, 2, detect_outliers_std)
+  } else {
+    stop("Nieznana metoda. Wprowadź 'IQR' lub 'STD'.")
+  }
+  
+# Usuwanie obserwacji odstających ze zbioru danych
+  data_cleaned <- data
+  data_cleaned[outliers] <- NA
+  data_cleaned <- na.omit(data_cleaned)
+  
+  return(data_cleaned)
+}
+
+# Wykrywanie obserwacji odstających i usuwanie ich na podstawie wybranej metody
+kolumny_do_usuniecia_odstajacych <- dane1[, c(2, 6, 7)]
+
+# Usuwanie obserwacji odstających tylko z wybranych kolumn
+kolumny_po_usunieciu_iqr <- remove_outliers(kolumny_do_usuniecia_odstajacych, method = "IQR")
+
+dane_po_usunieciu_iqr <- dane1[rownames(kolumny_po_usunieciu_iqr), ]
+table(dane_po_usunieciu_iqr$Stroke)
+
+# bez standaryzacji 
+set.seed(123)
+ind <- sample(2, nrow(dane_po_usunieciu_iqr), replace = TRUE, prob = c(0.7, 0.3))
+train_set3 <- dane_po_usunieciu_iqr[ind==1,]
+test_set3 <- dane_po_usunieciu_iqr[ind==2,]
+
+
+
+# regresja logisyczna 
+formula <- Stroke~.
+model <- glm(formula , data = train_set3, family = binomial)
+
+# predykcja na zbiorze testowym
+predictions <- predict(model, test_set3, type = 'response')
+
+# zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 'tak' , 'nie')
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set3$Stroke, positive = 'tak' )
+```
+
+W naszym przypadku usunięcie wartości odstających polepszyła wyniki. Otrzymana została dobra dokładność, lecz nadal predykcja dość błędnie przewiduje zmienną Stroke("Nie").
+
+**5. W jaki sposób należy interpretować wyniki (wartości parametrów) uzyskiwane w regresji logistycznej? Zinterpretować wartości parametrów uzyskane podczas budowy modelu regresji logistycznej.**
+
+Interpretacja wyników uzyskiwanych w regresji logistycznej polega na zrozumieniu, jak zmienne niezależne wpływają na prawdopodobieństwo przynależności do danej klasy w problemie klasyfikacji binarnej. Parametr Specifity wynosi 0.97087, co oznacza, że model jest w stanie poprawnie zidentyfikować 97,09% rzeczywistych negatywnych przypadków. Model wykazuje wysoką zdolność do identyfikacji negatywnych przypadków.Czułość wynosi 0.26190, co oznacza, że model jest w stanie poprawnie zidentyfikować tylko 26,19% rzeczywistych pozytywnych przypadków. To oznacza, że model ma trudności z wykrywaniem pozytywnych przypadków. Dokładność wynosi 0.8508, co oznacza, że model jest w stanie poprawnie sklasyfikować 85,08% obserwacji.
+
+## **Zadanie 5. Krzywa ROC i wartość AUC** 
+
+**1. Co to jest próg odcięcia?**
+
+Próg odcięcia w kontekście analizy danych i uczenia maszynowego to ustalona wartość lub punkt graniczny, który jest używany do podjęcia decyzji binarnej lub wieloklasowej na podstawie wyników modelu lub algorytmu. Próg odcięcia jest stosowany głównie w zastosowaniach klasyfikacji, gdzie celem jest przypisanie obiektów do określonych kategorii lub klas.
+
+Kiedy model generuje wyniki numeryczne, takie jak prawdopodobieństwa przynależności do różnych klas, próg odcięcia pomaga dokonać ostatecznej klasyfikacji, określając, które wyniki zostaną zaklasyfikowane do danej klasy, a które do innej. Wartość progowa jest wykorzystywana jako granica decyzyjna.
+
+**2. Co to jest krzywa ROC i wartość AUC? W jaki sposób są one tworzone/obliczane?**
+
+Krzywa ROC jest tworzona przez zmienianie wartości progowej (threshold) modelu klasyfikacyjnego i obliczanie TPR i FPR dla każdej wartości progowej. Następnie te wyniki są punktami na wykresie, a krzywa jest krzywą łączącą te punkty. Idealny model miałby krzywą ROC przechodzącą przez punkt (0,1), co oznaczałoby, że ma 100% czułości (TPR) i 0% błędu fałszywie pozytywnego (FPR).
+
+AUC to obszar pod krzywa ROC, służy do oceny poprawności klasyfikatora. Przyjmuje wartości z zakresu [0,1], gdzie 0.5 oznacza model losowy, a 1 model idealny
+
+Obliczanie AUC można wykonać za pomocą różnych metod, w tym przy użyciu całki numerycznej pod krzywą ROC lub za pomocą odpowiednich bibliotek i narzędzi do analizy danych i uczenia maszynowego, takich jak scikit-learn w języku Python.
+
+**3. Zaprezentować krzywą ROC dla modeli: KNN i regresji logistycznej. Porównać je ze sobą.**
+```{r}
+# KNN
+trControl <- trainControl(method = "repeatedcv", 
+                          number = 10,  
+                          repeats = 3, 
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary)  
+set.seed(1234)
+fit <- train(Stroke ~ ., 
+             data = train_set,
+             tuneGrid   = expand.grid(k = 1:20),
+             method = "knn",
+             tuneLength = 20,
+             metric     = "ROC", 
+             trControl = trControl,
+             preProc = c("center", "scale")) 
+
+pred <- predict(fit, newdata = test_set )
+confusionMatrix(pred, test_set$Stroke, positive = 'tak' )
+
+# Wykres ROC i AUC 
+pred <- predict(fit, newdata = test_set, type = 'prob')[,2]
+roc_obj <- roc(test_set$Stroke, pred)
+auc <- round(auc(test_set$Stroke, pred),4)
+
+# Rysowanie krzywej ROC
+ggroc(roc_obj,colour = 'steelblue',size=2,legacy.axes = TRUE) +
+  geom_abline(linetype = "dashed") +
+  theme(panel.border = element_rect(color = 'black',fill = NA,size = 1),
+        panel.background = element_rect(fill='gray95'),
+        plot.background = element_rect(color = 'black', size = 1) 
+  )+
+  ggtitle(paste0('Krzywa ROC ', '(AUC = ', auc, ')')) +
+  labs(x = "1 - Swoistość",
+       y = "Swoistość")
+
+
+# regresja logisyczna 
+formula <- Stroke~.
+model <- glm(formula , data = train_set, family = binomial)
+
+# predykcj na zbiorze testowym
+predictions <- predict(model, test_set, type = 'response')
+
+# Przekształcenie wynikow na formę binarną (0 lub 1)
+predicted_classes <- ifelse(predictions >= 0.5, 'tak' , 'nie')
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set$Stroke, positive = 'tak' )
+
+# Wykres ROC i AUC 
+roc_obj <- roc(test_set$Stroke, predictions)
+auc <- round(auc(test_set$Stroke, predictions),4)
+
+# Rysowanie krzywej ROC
+ggroc(roc_obj,colour = 'steelblue',size=2,legacy.axes = TRUE) +
+  geom_abline(linetype = "dashed") +
+  theme(panel.border = element_rect(color = 'black',fill = NA,size = 1),
+        panel.background = element_rect(fill='gray95'),
+        plot.background = element_rect(color = 'black', size = 1) 
+  )+
+  ggtitle(paste0('Krzywa ROC ', '(AUC = ', auc, ')')) +
+  labs(x = "1 - Swoistość",
+       y = "Swoistość")
+```
+
+Krzywe ROC dla KNN i regresji logistycznej w naszym przypadku mają podobny wygląd,lecz ich interpretacja rózni się od siebie. Wartość AUC (Pole pod krzywą) dla KNN wyniosła 0,727 (przeciętną zdolność modelu), dla regresji było to 0,8305 (dobra zdolność modelu). Położenie krzywej mówi, że im bliżej jest górnego punktu wykresu (punkt (0,1)) to lepsza jest zdolność modelu do rozróżniania klas. W naszym przypadku krzywa jest bliżej tego punktu dla regresji.

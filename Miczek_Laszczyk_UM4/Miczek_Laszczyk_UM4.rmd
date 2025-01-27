@@ -1,0 +1,513 @@
+---
+title: "Sprawozdanie 4"
+author: "Andrzej Miczek, Jakub Laszczyk"
+date: "2023-10-27"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#  **1.Wykorzystanie lasów losowych do predykcji wartości zmiennej wynikowej.**
+
+**Wczytanie bibliotek** 
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+library(ranger)
+library(randomForest)
+library(caret)
+library(ggplot2)
+```
+
+**Wczytanie danych**
+
+```{r}
+dane <- read.csv("Heart2.csv", sep=";")
+dane <-na.omit(dane)
+```
+
+**Podział danych**
+
+```{r}
+str(dane)
+dane$heartDisease <- as.factor(dane$heartDisease)
+set.seed(123)
+ind <- sample(2, nrow(dane), replace = TRUE, prob = c(0.7, 0.3))
+train_set <- dane[ind==1,]
+test_set <- dane[ind==2,]
+```
+
+**Budowa random forest**
+
+**Budowa modelu z domyślnymi wartosciami parametrów**
+
+```{r}
+#podstawowy model 
+model <- ranger(heartDisease ~ ., 
+                       data = train_set 
+                )
+
+#predykcja i confusion matrix - train data
+p1 <- predict(model, train_set)
+confusionMatrix(p1$predictions, train_set$heartDisease)
+# predykcja i confusion matrix  - test data
+p2 <- predict(model, test_set)
+confusionMatrix(p2$predictions, test_set$heartDisease)
+```
+
+**Wybór optymalnej liczby drzew**
+
+Jako pierwszy z parametrów została sprawdzona liczba drzew w lesie. Użyto do 
+tego funkcji ranger oraz pętli sprawdzającej jak zachowuje się błąd prognozowania 
+w zależności od różnych wartości num.trees. Sprawdzone zostały wartości liczby drzew 
+z zakresu od 50 do 1000. Wartość mtry ustawiono jako 4(pierwaistek z liczby zmiennych), a kryterium podziału stanowił 
+indeks Giniego. Następnie został wygenerowany wykres przedstawiający wyniki 
+działania pętli.
+
+```{r, warning=FALSE, message=FALSE}
+#wybor num.trees
+num.trees <- seq(50, 1000, by = 50)
+oob.error <- vector("numeric", length(num.trees))
+
+#mtry ustawiane jako pierwiastek z ilosci zmiennych 
+# Iterujemy przez różne liczby drzew
+for (i in seq_along(num.trees)) {
+  model <- ranger(heartDisease ~ ., 
+                  data = train_set, 
+                  num.trees = num.trees[i], 
+                  mtry = 4, 
+                  importance = 'impurity')
+  oob.error[i] <- model$prediction.error
+}
+
+# Wizualizujemy wyniki
+df <- data.frame(NumTrees = num.trees, OOBE = oob.error)
+ggplot(df, aes(x = NumTrees, y = OOBE)) +
+  geom_line() +
+  labs(title = "Błąd prognozy w zależnośći od liczby drzew", x = "Liczba drzew", y = "Błąd prognozy")+
+  theme(panel.border = element_rect(color = 'black',fill = NA,size = 1),
+        panel.background = element_rect(fill='gray95'),
+        plot.background = element_rect(color = 'black', size = 1)
+        )
+
+min.error.index <- which.min(oob.error)
+best.num.trees <- num.trees[min.error.index]
+```
+
+
+Kolejnymi parametrami które należało dopasować były mtry oraz max.depth. W tym celu 
+została utworzona siatka zmiennych zawierające wszystkie kombinacje mtry z zakresu 
+od 1 do 10 oraz max.depth z zakresu od 1 do 15. Sprawdzenie wartości parametrów 
+przebiegało analogicznie jak w przypadku liczby drzew. Wartość num.trees została 
+ustawiona na najlepszą wartość wyznaczoną w poprzednim kroku.
+
+
+```{r}
+# Stworzenie siatki parametrów do przetestowania
+tune_grid <- expand.grid(max.depth = seq(1, 15, by = 1),
+                         mtry.size = seq(1, 10, by = 1))
+
+# Iteracja po siatce parametrów
+for(i in 1:nrow(tune_grid)){
+  max_depth_value <- tune_grid$max.depth[i]
+  mtry_value <- tune_grid$mtry.size[i]
+  
+  model <- ranger(heartDisease ~ ., 
+                  data = train_set, 
+                  num.trees = best.num.trees, 
+                  mtry = mtry_value, 
+                  max.depth = max_depth_value,
+                  importance = 'impurity')
+  oob.error[i] <- model$prediction.error
+}
+
+min.error.index <- which.min(oob.error)
+best_params <- tune_grid[min.error.index,]
+```
+
+Ostatnim etapem było zbudowanie lasu losowego za pomocą wybranych wcześniej 
+parametrów, oraz ocena modelu.
+
+```{r}
+set.seed(123)
+#finalny model i predykcja 
+model <- ranger(heartDisease ~ ., 
+                data = train_set, 
+                num.trees = best.num.trees, 
+                mtry = best_params$mtry.size,
+                max.depth = best_params$max.depth,
+                importance = 'impurity')
+
+
+print(model)
+attributes(model)
+#predykcja i confusion matrix - train data
+p3 <- predict(model, train_set)
+confusionMatrix(p3$predictions, train_set$heartDisease)
+# predykcja i confusion matrix  - test data
+p4 <- predict(model, test_set)
+confusionMatrix(p4$predictions, test_set$heartDisease)
+```
+
+Ponieważ w algorytmie random forest wystepuje element losowości i nie zawsze zwracane wyniki są takie same została zastosowana petla w ktorej model został utworzony 10 razy, a wynikiem działania tej petli jest średnia dokładnosć z tych 10 modeli. 
+
+```{r}
+num_iterations <- 10  # Liczba iteracji w pętli
+mean_accuracy <- 0
+
+for (i in 1:num_iterations) {
+  # Trenowanie modelu Random Forest
+  model <- ranger(heartDisease ~ ., 
+                  data = train_set, 
+                  num.trees = best.num.trees, 
+                  mtry = best_params$mtry.size, 
+                  max.depth = best_params$max.depth,
+                  importance = 'impurity')
+  
+  # Przewidywanie na danych testowych
+  przewidywania <- predict(model, data = test_set)$predictions
+  
+  # Obliczanie accuracy dla aktualnej iteracji
+  accuracy <- sum(przewidywania == test_set$heartDisease) / length(przewidywania)
+  
+  # Dodawanie accuracy do sumy
+  mean_accuracy <- mean_accuracy + accuracy
+}
+
+# Obliczanie średniej wartości accuracy
+mean_accuracy <- mean_accuracy / num_iterations
+
+# Wyświetlanie wyniku
+cat("Mean accuracy:", mean_accuracy, "\n")
+```
+
+**Podsumowanie wyników:**
+
+Najlepsza średnia dokładność na zbiorze testowym wynosiła **0.8628099** dla parametrów: 
+
+* num.tree = 350
+
+* mtry = 4
+
+* max.depth = 13
+
+To oznacza, że model osiągnął średnią dokładność na zbiorze testowym wynoszącą około 86.28% przy użyciu tych konkretnych parametrów. Wynik ten może być użyteczny do oceny jakości modelu i porównywania go z innymi modelami lub zestawami parametrów.
+
+# **2. Zastosowanie boostingu do predykcji wartości zmiennej wynikowej.**
+
+Algorytm XGBoost (ang. Extreme Gradient boosting). Jest to zmodyfikowany algorytm wzmacniania gradientu, który został 
+opracowany przez Tianqi Chena, i od tego czasu wygrywał liczne nagrody w konkursach 
+organizowanych przez platformę Kaggle. W algorytm XGBoost w porównaniu 
+do tradycyjnych metod wzmacniania gradientu wprowadzono miedzy innymi składnik 
+regularyzacji, który odpowiada za kontrole złożoności modelu oraz redukcje wariancji 
+stosując system kar nakładany na model za zbyt duża liczbę obserwacji w segmencie.
+
+**Opis parametrów użytych w modelu XGBoost:**
+
+* Nrounds – określa liczbę rund uczenia, w każdej rundzie tworzony jest nowy model 
+bazowy. 
+
+* Eta – jest to współczynnik odpowiedzialny za korekty wagi w kolejnych modelach. Niska 
+wartość oznacza mniejsze korekty co może być pomocne w przypadku problemu 
+przeuczenia jednak wydłuża to proces uczenia modelu. 
+
+* Max.depth – Odpowiada za głębokość każdego drzewa. 
+
+* Subsample – Kontroluje liczbę obserwacji jakie są przekazywane do każdego drzewa. 
+Mniejsza wartość oznacza większą losowość w doborze obserwacji.
+
+* Colsample_bytree – określa jaka liczba zmiennych będzie przekazywana do każdego 
+drzewa, tak samo jak w przypadku subsample mniejsza wartość od 1 oznacza większą 
+losowość.
+
+* Min.child.weight – jeśli suma wag „dzieci” jest mniejsza niż ten parametr to węzeł 
+nie jest tworzony. 
+
+
+**Wczytanie bibliotek** 
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+library(xgboost)
+library(Matrix)
+library(caret)
+library(mlr)
+library(pROC)
+```
+
+**Wczytanie danych**
+
+```{r}
+danexboost <- read.csv("Heart2.csv", sep=";")
+danexboost$heartDisease  <- as.numeric(danexboost$heartDisease)
+```
+
+**Podział danych**
+
+```{r}
+set.seed(123)
+ind <- sample(2, nrow(danexboost), replace = TRUE, prob = c(0.7, 0.3))
+train_set <- danexboost[ind==1,]
+test_set <- danexboost[ind==2,]
+```
+
+**Stworzenie odpowiednich ramek danych**
+
+```{r}
+xgtrain <- xgb.DMatrix(data = as.matrix(train_set[, -length(test_set)]), label = train_set[,length(test_set)])
+xgtest <- xgb.DMatrix(data = as.matrix(test_set[, -length(test_set)]), label = test_set[,length(test_set)])
+```
+
+**Budowa podstawowego modelu**
+
+```{r,results='hide'}
+# Parameters
+xgb_params <- list("objective" = "binary:logistic",
+                   "eval_metric" = "logloss"
+                   )
+watchlist <- list(train = xgtrain, test = xgtest)
+
+xg_model <- xgb.train(params = xgb_params,
+                      data = xgtrain,
+                      booster = "gbtree",
+                      nrounds = 500,
+                      watchlist = watchlist,
+                      eta = 0.1,
+                      max.depth =6,
+                      gamma = 0,
+                      subsample = 0.8,
+                      colsample_bytree = 1,
+                      #missing = NA,
+                      verbose = 2,
+                      set.seed(123))
+```
+```{r}
+logframe <- data.frame(xg_model$evaluation_log)
+plot(logframe$iter, logframe$train_logloss, col = 'blue')
+lines(logframe$iter, logframe$test_logloss, col = 'red')
+
+min(logframe$test_logloss)
+logframe[logframe$test_logloss == min(logframe$test_logloss),]
+```
+
+W celu wyznaczenia optymalnej wartości nround dla ustalonego poziomu eta za pomocą 
+funkcji xgb.cv została przeprowadzona walidacja krzyżowa.
+
+```{r}
+params <- list(booster = "gbtree", objective = "binary:logistic", eta=0.1, 
+               gamma=0, max_depth=6, min_child_weight=1, subsample=0.8, colsample_bytree=1)
+
+xgbcv <- xgb.cv( params = params, data = xgtrain, nrounds = 150, nfold = 5, 
+                 showsd = T, stratified = T, print_every_n = 10, early_stop_round = 20, maximize = F)
+
+
+xgbcv$evaluation_log[xgbcv$evaluation_log$test_logloss_mean==min(xgbcv$evaluation_log$test_logloss_mean),]
+```
+
+Następnie została przeprowadzona weryfikacja podstawowego modelu na danych 
+testowych oraz treningowych.
+
+```{r}
+ # predykcja i confusion matrix - train data
+preds <- predict(xg_model, xgtrain)
+preds <- ifelse(preds > 0.5, 1, 0)
+preds <- as.factor(preds)
+x <- as.factor(train_set[,length(train_set)])
+# Ocena modelu
+table(pred = preds, true = train_set[,length(train_set)]) 
+confusionMatrix(preds,x)
+
+# predykcja i confusion matrix - test data
+preds <- predict(xg_model, xgtest)
+preds <- ifelse(preds > 0.5, 1, 0)
+preds <- as.factor(preds)
+x <- as.factor(test_set[,length(test_set)])
+# Ocena modelu
+table(pred = preds, true = test_set[,length(test_set)]) 
+confusionMatrix(preds,x)
+
+
+```
+
+W kolejnym etapie przeprowadzono optymalizacje hiperparametrów z wykorzystaniem 
+funkcji mlr().
+
+```{r,results='hide',message=FALSE}
+test_set$heartDisease <- as.factor(test_set$heartDisease)
+train_set$heartDisease <- as.factor(train_set$heartDisease)
+traintask <- makeClassifTask (data = train_set,target = "heartDisease")
+testtask <- makeClassifTask (data = test_set,target = "heartDisease")
+
+lrn <- makeLearner("classif.xgboost",predict.type = "response")
+lrn$par.vals <- list( objective="binary:logistic", eval_metric="error", nrounds=40, eta=0.1,set.seed(123))
+
+
+params <- makeParamSet(makeIntegerParam("max_depth",lower = 3L,upper = 10L), 
+                       makeNumericParam("min_child_weight",lower = 1L,upper = 10L), 
+                       makeNumericParam("subsample",lower = 0.5,upper = 1), 
+                       makeNumericParam("colsample_bytree",lower = 0.5,upper = 1))
+
+
+resample <- makeResampleDesc("CV",stratify = T,iters=5L)
+ctrl <- makeTuneControlRandom(maxit = 10L)
+tune_params <- tuneParams(learner = lrn, task = traintask, 
+                     resampling = resample, measures = acc, 
+                     par.set = params ,control = ctrl,show.info = T)
+
+tune_params$y 
+```
+
+Ostatnim krokiem było przypisanie wyznaczonych wartości parametrów do modelu, 
+a następnie obniżanie wartości eta wraz z jednoczesnym podnoszeniem wartości nrounds.
+
+```{r}
+#set hyperparameters
+lrn_tune <- setHyperPars(lrn, par.vals = tune_params$x)
+print(tune_params$x)
+```
+```{r,results='hide'}
+#train model
+xgmodel <- mlr::train(learner=lrn_tune, task=traintask)
+```
+
+```{r}
+#predykcja
+xgpred <- predict(xgmodel,testtask)
+confusionMatrix(xgpred$data$response,xgpred$data$truth)
+```
+
+```{r,results='hide'}
+xg_model <- xgb.train(params = xgb_params,
+                      data = xgtrain,
+                      booster = "gbtree",
+                      nrounds = 97,
+                      watchlist = watchlist,
+                      eta = 0.05,
+                      max.depth =7,
+                      gamma = 0,
+                      subsample = 0.8135202,
+                      colsample_bytree = 0.6459869,
+                      min_child_weight = 5.841058,
+                      verbose = 2,
+                      set.seed(123))
+
+```
+```{r}
+logframe <- data.frame(xg_model$evaluation_log)
+plot(logframe$iter, logframe$train_logloss, col = 'blue')
+lines(logframe$iter, logframe$test_logloss, col = 'red')
+
+min(logframe$test_logloss)
+logframe[logframe$test_logloss == min(logframe$test_logloss),]
+```
+
+
+```{r}
+ # predykcja i confusion matrix - train data
+preds <- predict(xg_model, xgtrain)
+preds <- ifelse(preds > 0.5, 1, 0)
+preds <- as.factor(preds)
+x <- as.factor(train_set[,length(train_set)])
+# Ocena modelu
+table(pred = preds, true = train_set[,length(train_set)]) 
+confusionMatrix(preds,x)
+
+# predykcja i confusion matrix - test data
+preds <- predict(xg_model, xgtest)
+preds <- ifelse(preds > 0.5, 1, 0)
+preds <- as.factor(preds)
+x <- as.factor(test_set[,length(test_set)])
+# Ocena modelu
+table(pred = preds, true = test_set[,length(test_set)]) 
+confusionMatrix(preds,x)
+
+```
+
+**Najlepsze wyniki otrzymano dla parametrów:**
+
+* nrounds = 97,
+
+* eta = 0.05,
+
+* max.depth = 7,
+
+* gamma = 0,
+
+* subsample = 0.8135202,
+
+* colsample_bytree = 0.6459869,
+
+* min_child_weight = 5.841058,
+
+**Wynosiły one dla zbioru treningowego:**
+
+*dokładność: 0.9167
+
+*czułość:0.9212
+
+*specyficzność: 0.9120 
+
+**dla zbioru testowego:**
+
+*dokładność: 0.8802
+
+*czułość:0.8559 
+
+*specyficzność: 0.9032 
+
+To oznacza, że najlepszy model został osiągnięty przy użyciu tych parametrów, a dokładność na zbiorze testowym wynosiła około 88.02%. Model ten wykazywał dobrą zdolność do generalizacji, zachowując wysoką czułość i specyficzność na zbiorze testowym, co sugeruje, że dobrze radził sobie zarówno z przypadkami pozytywnymi, jak i negatywnymi.
+
+**Ocena ważności zmiennych**
+
+```{r}
+# Feature importance
+imp <- xgb.importance(colnames(xgtrain), model = xg_model)
+print(imp)
+xgb.plot.importance(imp)
+```
+
+Ważność zmiennych oceniana jest na podstawie tych trzech miar, które różnią się od siebie i mogą mieć różne interpretacje. Gain mierzy, ile dana zmienna przyczynia się do poprawy jakości modelu, Cover mierzy, jak wiele próbek jest pokrywanych przez daną zmienną, a Frequency mierzy, jak często zmienna występuje w zbiorze danych.
+
+Na podstawie tych wyników można stwierdzić, że STSlopeFlat ma największą ważność, a ChestPainTypeNAP i STSlopeDown mają najmniejszą ważność. Ważność zmiennych można wykorzystać do selekcji zmiennych, optymalizacji modelu lub do lepszego zrozumienia wpływu zmiennych na wyniki modelu.
+
+#  **3. Porównanie wyników uzyskane za pomocą lasów losowych, boostingu, prostego drzewa decyzyjnego oraz baggingu.**
+
+Porównując wyniki czterech różnych metod klasyfikacji:
+
+**Lasów Losowych:**
+
+* Dokładność: 0.8628099
+* Czułość: 0.8559
+* Specyficzność: 0.8548
+
+**Boosting:**
+
+* Dokładność: 0.8802
+* Czułość: 0.8559
+* Specyficzność: 0.9032
+
+**Proste Drzewa Decyzyjne:**
+
+* Dokładność: 0.8595
+* Czułość: 0.8051
+* Specyficzność: 0.9113
+
+**Bagging:**
+
+* Dokładność: 0.8843
+* Czułość: 0.8305
+* Specyficzność: 0.9355
+
+**Wnioski na podstawie otrzymanych wyników:**
+
+Metoda Bagging uzyskała najwyższą dokładność na zbiorze testowym spośród wszystkich badanych metod, wynoszącą 0.8843. Była również w stanie osiągnąć dobrą specyficzność (0.9355), co jest istotne w przypadku klasyfikacji problemów medycznych, gdzie false positives mogą mieć istotne konsekwencje.
+
+Metoda Boosting również osiągnęła bardzo dobre wyniki, z dokładnością na poziomie 0.8802 i równocześnie wysoką czułością i specyficznością. Jest to silna metoda, która może być skuteczna w klasyfikacji problemów medycznych.
+
+Las Losowy osiągnął nieco niższą dokładność niż Bagging i Boosting, ale wciąż był skuteczny. Jednak jego specyficzność była niższa, co może być istotne w niektórych kontekstach.
+
+Proste Drzewa Decyzyjne osiągnęły nieco niższą dokładność niż pozostałe metody, a także miały niższą czułość. Jednak specyficzność była na dobrym poziomie.
+
+**Wybór metody zależy od konkretnej sytuacji i wymagań problemu. Las Losowy i Bagging są silnymi kandydatami, jeśli zależy nam na stabilności i dobrej generalizacji. Boosting jest skuteczny, jeśli potrzebujemy bardzo wysokiej dokładności, ale może być bardziej złożony do dostrojenia. Proste Drzewa Decyzyjne są łatwe do interpretacji, ale mogą mieć niższą dokładność i być bardziej podatne na nadmierne dopasowanie. Ważne jest, aby dostosować wybór metody do konkretnej sytuacji i dokładnie ocenić jej wyniki na zbiorze testowym.**

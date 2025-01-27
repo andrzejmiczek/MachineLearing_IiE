@@ -1,0 +1,275 @@
+---
+title: "Sprawozdanie 5"
+author: "Andrzej Miczek, Jakub Laszczyk"
+date: "2023.11.10"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **Wykorzystanie algorytmu SVM do predykcji wartości zmiennej wynikowej.**
+
+**Wczytanie bibliotek**
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+library(caret)
+library(class)
+```
+
+**Wczytanie danych**
+
+```{r}
+dane <- read.csv("Heart2.csv", sep=";")
+```
+
+**Podział danych**
+
+```{r}
+str(dane)
+dane[,c(1,3,4,6,8)] <- scale(dane[,c(1,3,4,6,8)])
+dane$heartDisease <- as.factor(dane$heartDisease)
+set.seed(123)
+ind <- sample(2, nrow(dane), replace = TRUE, prob = c(0.7, 0.3))
+train_set <- dane[ind==1,]
+test_set <- dane[ind==2,]
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+```
+
+# **Jądro liniowe (linear)**
+
+**Budowa modelu wykorzystującego jądro liniowe (linear)**
+
+```{r}
+#svm  jądro liniowe
+svm_linear <- train(heartDisease~.,train_set,method ="svmLinear",
+                    trControl= train_control,tuneLength =10)
+svm_linear$bestTune
+#predykcja na zbiorze treningowym 
+pred1 <- predict(svm_linear,train_set)
+confusionMatrix(pred1,train_set$heartDisease)
+#predykcja na zbiorze testowym 
+pred2 <- predict(svm_linear,test_set)
+matrix_linear <- confusionMatrix(pred2,test_set$heartDisease)
+```
+
+najlepsze wyniki otrzymano dla C = 1
+
+**Przedstawienie hiperparametrów, które można optymalizować przy jądrze
+liniowy oraz wyjaśnienie za co odpowiadają**
+
+W jądrze liniowym SVM istnieje tylko jeden parametr - koszt (C). Oznacza
+to koszt błędnego zaklasyfikowania danych treningowych.
+
+Duże C prowadzi do niskiego obciążenia (bias) i wysokiej wariancji.
+Niskie obciążenie wynika z tego, że kara za błędne zaklasyfikowanie jest
+wysoka. Duże C sprawia, że koszt błędnej klasyfikacji jest wysoki, co
+zmusza algorytm do dokładniejszego dopasowania do danych wejściowych i
+potencjalnie prowadzi do nadmiernego dopasowania (overfitting).
+
+Małe C prowadzi do wyższego obciążenia i niższej wariancji. Małe C
+oznacza niski koszt błędnej klasyfikacji, co pozwala na więcej błędów
+dla uzyskania szerszego "poduszki" (cushion) czyli marginesu
+bezpieczeństwa wokół granicy decyzyjnej.
+
+**Weryfikacja jak zmiana tych hiperparametrów wpływa na uzyskiwane
+wyniki**
+
+```{r}
+#dobor parametru c 
+svm_grid <- train(heartDisease~.,
+                    train_set,
+                    method ="svmLinear",
+                    trControl= train_control,
+                    tuneGrid = expand.grid(C = seq(001, 2, length = 20))
+                    #preProcess = c("center", "scale")
+                    )
+plot(svm_grid)
+svm_grid$bestTune
+test_predgrid <- predict(svm_grid,test_set)
+confusionMatrix(test_predgrid,test_set$heartDisease)
+```
+
+na wykresie możemy zobaczyc zależność miedzy kosztem, a dokładnościa
+naszego modelu. Do pewnego momentu wraz ze wzrostem c zwieksza sie
+dokladnosc, jednak nie sa to duze roznice.
+
+# **Jądro wielomianowe (poly)**
+
+**Budowa modelu wykorzystującego jądro wielomianowe (poly)**
+
+```{r}
+#jądro wielomianowe
+svm_Poly <- train(heartDisease~.,train_set,method ="svmPoly",
+                    trControl= train_control,tuneLength =3)
+
+svm_Poly$bestTune
+#predykcja na zbiorze treningowym 
+pred1 <- predict(svm_Poly,train_set)
+confusionMatrix(pred1,train_set$heartDisease)
+#predykcja na zbiorze testowym 
+pred2 <- predict(svm_Poly,test_set)
+matrix_Poly <- confusionMatrix(pred2,test_set$heartDisease)
+```
+
+najlepsze wyniki otrzymano dla degree = 3 scale = 0.01 oraz c = 1. W tym
+przypadku tuneLength zostało zmniejszone do 3 poniewaz przy wiekszej
+liczbie czas uczenia był bardzo długi, można podejrzewac ze przy wyzszej
+wartosci zostałyby osiagniete lepsze wyniki.
+
+**Przedstawienie hiperparametrów, które można optymalizować przy jądrze
+liniowy oraz wyjaśnienie za co odpowiadają**
+
+C jak wczesniej Degree (Stopień wielomianu): Stopień wielomianu określa
+stopień używanego wielomianu w funkcji jądra. W przypadku jądra
+wielomianowego, dane są mapowane do przestrzeni wielowymiarowej za
+pomocą wielomianu o określonym stopniu. Stopień ten wpływa na to, jak
+bardzo złożony będzie model. Wyższe stopnie mogą prowadzić do bardziej
+skomplikowanych granic decyzyjnych, ale mogą także zwiększać ryzyko
+nadmiernego dopasowania. Wartość domyślna to zazwyczaj 3.
+
+Scale (Skala): Skala jest używana w jądrze wielomianowym do
+kontrolowania skali cech. Skala wpływa na to, jak bardzo dane są
+przeskalowane przed zastosowaniem funkcji jądra wielomianowego.
+Odpowiednie dostosowanie skali może być istotne, zwłaszcza gdy różne
+cechy mają różne zakresy wartości. Domyślna wartość zazwyczaj wynosi 1.
+
+**Weryfikacja jak zmiana tych hiperparametrów wpływa na uzyskiwane
+wyniki**
+
+```{r}
+svm_grid <- train(heartDisease~.,
+                  train_set,
+                  method ="svmPoly",
+                  TrControl= train_control,
+                  tuneGrid = expand.grid(
+                  C = seq(0.001, 2, length = 20),
+                  degree = c(2, 3, 4),  
+                  scale = c(0.1, 0.5, 1, 2)) #nie jestem pewien czy mozna tunowac ten 
+                  #parametr poniewaz odpowiada za scalowanie danych, a nasze dane posiadaja zmienne binarne których nie powinno sie scalowac
+  #preProcess = c("center", "scale")
+)
+
+plot(svm_grid)
+svm_grid$bestTune
+test_predgrid <- predict(svm_grid,test_set)
+confusionMatrix(test_predgrid,test_set$heartDisease)
+```
+
+Na wykresach możemy zobaczyc zależność miedzy kosztem, skala oraz
+stopniem, a dokładnościa naszego modelu. W przypadku kazdego stopnia
+najelpsze wyniki były otrzymywane dla scale 0.1. Do pewnego momentu
+dokładnosc szynko rosła, a potem stopniowo spadała wraz ze wzroctem c
+
+# **Jądro radialne (rbf - radial basis function)**
+
+**Budowa modelu wykorzystującego radialne (rbf - radial basis
+function)**
+
+```{r}
+#jądro radialne
+svm_Radial <- train(heartDisease~.,train_set,method ="svmRadial",
+                    trControl= train_control,tuneLength =10)
+
+svm_Radial$bestTune
+#predykcja na zbiorze treningowym 
+pred1 <- predict(svm_Radial,train_set)
+confusionMatrix(pred1,train_set$heartDisease)
+#predykcja na zbiorze testowym 
+pred2 <- predict(svm_Radial,test_set)
+matrix_radial <- confusionMatrix(pred2,test_set$heartDisease)
+```
+
+najlepsze wyniki otrzymano dla sigma = 0.0431865 oraz c = 0.25
+
+**Przedstawienie hiperparametrów, które można optymalizować przy jądrze
+liniowy oraz wyjaśnienie za co odpowiadają**
+
+C jak poprzednio. Sigma określa, jak daleko sięga wpływ pojedynczego
+przykładu treningowego. Gdy sigma jest bardzo małe, model jest zbyt
+ograniczony i nie jest w stanie uchwycić złożoności ani "kształtu"
+danych.
+
+**Weryfikacja jak zmiana tych hiperparametrów wpływa na uzyskiwane
+wyniki**
+
+```{r}
+#dobor parametru c  i sigma
+svm_grid <- train(heartDisease~.,
+                  train_set,
+                  method ="svmRadial",
+                  trControl= train_control,
+                  tuneGrid = expand.grid(C = seq(0.001, 2, length = 20), sigma = c(0.1, 0.5, 1, 2))
+                  #preProcess = c("center", "scale")
+)
+
+plot(svm_grid)
+svm_grid$bestTune
+test_predgrid <- predict(svm_grid,test_set)
+confusionMatrix(test_predgrid,test_set$heartDisease)
+```
+
+Na wykresie widzimy zaleznosc miedzy c,sigma oraz dokładnościa.
+Najlepsze wyniki osiagnieto dla sigma = 0.1, dokladnosc na poczatku
+szybko rosła, a potem ustabilizowala sie wraz ze wzrostem c
+
+# **Porównanie wyników uzyskanych w powyższych podpunktach. Wybór najlepszego modelu.**
+
+```{r}
+matrix_linear
+matrix_radial 
+matrix_Poly
+```
+
+Najalepsze wyniki zostały osiągniete dla jądra radialnego wynosiły one:
+Dokładność : 0.8843 Specyficzność : 0.9194 i byly one wyrażnei lepsze od
+wyników osiągnietych przez pozostałe modele
+
+**Wykorzystanie dowolnego prostego model (np. KNN, KKNN lub regresję
+logistyczną) do predykcji wartości zmiennej wynikowej. Porównanie
+jakości klasyfikacji tego modelu z modelami wykorzystującymi algorytm
+SVM.**
+
+```{r}
+#model regresji logitycznej
+formula <- heartDisease~.
+model <- glm(formula , data = train_set, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set, type = 'response')
+
+#Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+matrix_Regresja <- confusionMatrix(predicted_classes, test_set$heartDisease)
+```
+
+**Porównanie**
+
+```{r}
+wyniki <- data.frame(
+  Model = c("Linear", "Radial", "Poly", "Regresja"),
+  Accuracy = c(
+    matrix_linear$overall[1],
+    matrix_radial$overall[1],
+    matrix_Poly$overall[1],
+    matrix_Regresja$overall[1]
+  ),
+  Specificity = c(
+    matrix_linear$byClass[2],
+    matrix_radial$byClass[2],
+    matrix_Poly$byClass[2],
+    matrix_Regresja$byClass[2]
+  )
+)
+wyniki
+```
+
+Model owykorzystujacy algorytm regresji logistycznej osiągnął minimalnie
+słabsze wyniki od modelu opartego na algorytmie svm wykorzystującym
+jądro radialne, był natomiast lepszy od modelu opartego na jadrze
+liniowym oraz jadrze wielomianowym.

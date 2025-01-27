@@ -1,0 +1,151 @@
+---
+title: "Sprawozdanie 6"
+author: "Andrzej Miczek, Jakub Laszczyk"
+date: "2023-11-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#  **Zadanie 1. Modelowanie niezbalansowanego zbioru danych**
+
+**Wczytanie bibliotek** 
+
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+
+```
+
+**Wczytanie danych**
+
+```{r}
+dane <- read.csv("stroke.csv", sep=";")
+
+```
+
+**Eliminacja braków**
+
+```{r}
+
+
+```
+
+**Sprawdzenie udział obserwacji w klasie pozytywnej i w klasie negatywnej**
+
+```{r}
+
+```
+
+**Podział danych**
+
+```{r}
+
+```
+
+**Budowa modelu pierwszą wybraną metodą**
+
+```{r}
+
+```
+#Przeanalizować wartości dokładności, czułości i specyficzności dla tych klasyfikacji.
+
+**Budowa modelu drugiegą wybraną metodą**
+
+```{r}
+
+```
+#Przeanalizować wartości dokładności, czułości i specyficzności dla tych klasyfikacji.
+
+**Weryfikowacja, jak poszczególne techniki resamplingu (oversampling i undersampling) wpływają na uzyskiwane wartości oceny modelu**
+
+**Oversampling**
+
+```{r}
+
+```
+
+**Undersampling**
+
+```{r}
+
+```
+#Zwrócić przede wszystkim uwagę na dokładność, czułość i specyficzność.
+
+**Oversampling i undersamping - teoria**
+
+#Opisać wykorzystane w poprzednim podpunkcie techniki oversamplingu i undersamplingu (znaleźć w dokumentacji lub innych źródłach, jak dane funkcje w R/Pythonie działają - w jaki sposób eliminują problem niezbalansowanego zbioru danych).
+
+#  **Zadanie 2. Różne stopnie niezbalansowania zbioru danych**
+
+#Przeprowadzić symulację, na podstawie której oceniony zostanie wpływ poszczególnych technik resamplingu na uzyskiwane wartości oceny modelu w przypadku różnych udziałów klasy pozytywnej i negatywnej. W tym celu, poprzez losowanie obserwacji, utworzyć w różnym stopniu niezbalansowane zbiory danych, np.
+
+Klasa pozytywna (1)
+
+Klasa negatywna (0)
+
+#Następnie dla każdego ze stworzonych zbiorów danych zbudować po minimum 2 modele (bez uwzględniania niezbalansowanego zbioru, wykorzystując oversampling/undersampling). Porównać jakość uzyskanych klasyfikacji na podstawie dokładności, specyficzności i czułości (można wykorzystać także inne miary)
+
+**Udział obserwacji 1-10% 0-90%**
+
+```{r}
+
+```
+
+#Model 1
+```{r}
+
+```
+
+#Model 2
+```{r}
+
+```
+
+**Udział obserwacji 1-20% 0-80%**
+
+```{r}
+
+```
+
+#Model 1
+```{r}
+
+```
+
+#Model 2
+```{r}
+
+```
+**Udział obserwacji 1-30% 0-70%**
+
+```{r}
+
+```
+
+#Model 1
+```{r}
+
+```
+
+#Model 2
+```{r}
+
+```
+**Udział obserwacji 1-40% 0-60%**
+
+```{r}
+
+```
+
+#Model 1
+```{r}
+
+```
+
+#Model 2
+```{r}
+
+```
+
+**Porównanie wyników**

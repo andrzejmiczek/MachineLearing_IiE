@@ -1,0 +1,727 @@
+---
+title: "Sprawozdanie 2"
+author: "Andrzej Miczek, Jakub Laszczyk"
+date: "2023-10-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## **Wstęp teoretyczny**
+
+Do wykonania Zadania 2 dotyczącego braków danych wybraliśmy trzy metody:
+
+**1. Usunięcie braków**
+
+Eliminacja braków w danych poprzez usunięcie obserwacji to jedna z technik zarządzania brakującymi danymi w analizie danych. Jest to proces usuwania rekordów lub obserwacji, które zawierają brakujące wartości lub wartości odstające, z danych wejściowych. Metoda ta może być przydatna, gdy brakujące dane są nieliczne lub nieodzowne, ale należy ją stosować ostrożnie, aby nie wprowadzić zniekształceń ani nie utracić ważnych informacji, które mogły mieć ważny wpływ na końcowy rezultat badań. 
+
+**2. Zastąpienie braków średnią/medianą lub najczęsciej występującą obserwacją w zależności od typu zmiennych**
+
+Eliminacja braków w danych poprzez zastępowanie ich średnią, medianą lub najczęściej występującą obserwacją jest jedną z technik imputacji danych brakujących. Ta technika polega na zastępowaniu brakujących wartości w zmiennych danych pewnymi stałymi wartościami statystycznymi, które są charakterystyczne dla danego zestawu danych. Wybór miary tendencji centralnej (średniej, mediany lub najczęściej występującej wartości) zależy od typu zmiennej, jaką się analizuje.
+
+**Dla zmiennych numerycznych ciągłych** (np. wiek, dochód) najczęściej używa się średniej arytmetycznej (średniej), ponieważ jest to miara tendencji centralnej, która uwzględnia wszystkie dostępne wartości. Średnia obliczana jest poprzez sumowanie wszystkich dostępnych obserwacji i dzielenie przez liczbę tych obserwacji.
+
+**Dla zmiennych numerycznych dyskretnych lub o rozkładzie skośnym**, można zastosować medianę. Mediana to wartość, która dzieli dane na dwie równe części, czyli 50% obserwacji jest poniżej mediany, a 50% powyżej. Jest mniej podatna na wpływ wartości odstających niż średnia.
+
+**Dla zmiennych kategorialnych (np. płeć)** można zastąpić brakujące dane najczęściej występującą kategorią (wartością modalną), ponieważ nie ma sensu obliczać średniej ani mediany dla zmiennych jakościowych.
+
+
+**3. Zastąpienie braków przy wykorzystaniu knn**
+
+Eliminacja braków w danych przy wykorzystaniu Machine Learning, a konkretnie algorytmu K-Nearest Neighbors (KNN), to zaawansowana metoda imputacji danych brakujących. KNN jest algorytmem uczenia nadzorowanego, który może być wykorzystany do przewidywania brakujących wartości w oparciu o podobieństwo między obserwacjami. Metoda ta  jest bardziej zaawansowaną techniką niż zastępowanie braków średnią, medianą lub modalną, ponieważ uwzględnia wzajemne zależności między obserwacjami. Jednak może być bardziej czasochłonna i wymaga uważnego doboru hiperparametrów. Wyniki zależą od jakości dostępnych danych i wyboru odpowiedniego K.
+
+
+## **Wczytanie danych**
+```{r}
+library(VIM)
+library(caret)
+library(psych)
+```
+```{r}
+dane_S<-read.csv("zad2_Stroke.csv", sep = ";")
+dane_A<-read.csv("zad2_Airline.csv", sep = ";")
+dane_H<-read.csv("zad2_Heart.csv", sep = ";")
+```
+
+## **Przygotowanie zbioru danych**
+```{r}
+str(dane_S)
+dane_S[,2]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,2])))
+dane_S[,8]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,8])))
+dane_S[,9]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,9])))
+
+str(dane_H)
+dane_H[,10]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_H[,10])))
+```
+```{r}
+braki_w_kolumnachS <- colSums(is.na(dane_S))
+braki_w_kolumnachH <- colSums(is.na(dane_H))
+braki_w_kolumnachA <- colSums(is.na(dane_A))
+braki_w_kolumnachS 
+braki_w_kolumnachH 
+braki_w_kolumnachA 
+```
+## **Metoda I**
+
+**Usunięcie braków**
+```{r}
+dane_S1<-na.omit(dane_S)
+dane_A1<-na.omit(dane_A)
+dane_H1<-na.omit(dane_H)
+```
+
+**Budowa modelu**
+
+**Zbiór Stroke**
+
+```{r}
+dummy_data <- dummyVars(~ work_type, data = dane_S1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_S1))
+dane_S1 <- cbind(dane_S1, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ Residence_type, data = dane_S1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_S1))
+dane_S1 <- cbind(dane_S1, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ smoking_status, data = dane_S1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_S1))
+dane_S1 <- cbind(dane_S1, dummy_data_transformed)
+
+dane_S1$gender <- ifelse(dane_S1$gender == "Male", 1, 0)
+dane_S1$ever_married <- ifelse(dane_S1$ever_married == "Yes", 1, 0)
+dane_S1$Stroke <- dane_S1$stroke
+dane_S1 <- dane_S1[,-c(6,7,10,11,16,17)]
+str(dane_S1$age)
+dane_S1$Stroke <- as.factor(dane_S1$Stroke)
+# Podzial na zbior uczacy i testowy dla zbioru 
+set.seed(123)
+ind <- sample(2, nrow(dane_S1), replace = TRUE, prob = c(0.7, 0.3))
+train_set1 <- dane_S1[ind==1,]
+test_set1  <- dane_S1[ind==2,]
+
+# Regresja logistyczna
+formula <- Stroke~.
+model <- glm(formula , data = train_set1, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set1, type = 'response')
+
+# Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set1$Stroke)
+```
+
+**Zbiór Heart**
+```{r}
+str(dane_H1)
+dane_H1$Sex <- ifelse(dane_H1$Sex == "M", 1, 0)
+dane_H1$ExerciseAngina <- ifelse(dane_H1$ExerciseAngina == "N",1,0)
+dane_H1$Oldpeak <- as.numeric(gsub(",", ".", gsub("\\.", "", dane_H1$Oldpeak)))
+dane_H1$HeartDisease <- as.factor(dane_H1$HeartDisease)
+
+
+dummy_data <- dummyVars(~ ChestPainType, data = dane_H1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_H1))
+dane_H1 <- cbind(dane_H1, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ RestingECG, data = dane_H1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_H1))
+dane_H1 <- cbind(dane_H1, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ ST_Slope, data = dane_H1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_H1))
+dane_H1 <- cbind(dane_H1, dummy_data_transformed)
+
+dane_H1$heartDisease <- dane_H1$HeartDisease
+dane_H1 <- dane_H1[,-c(3,7,11,12,16,19,22)]
+str(dane_H1)
+
+# Podzial na zbior uczacy i testowy heart 
+set.seed(123)
+ind <- sample(2, nrow(dane_H1), replace = TRUE, prob = c(0.7, 0.3))
+train_set2 <- dane_H1[ind==1,]
+test_set2  <- dane_H1[ind==2,]
+
+# Model 
+formula <- heartDisease~.
+model <- glm(formula , data = train_set2, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set2, type = 'response')
+
+#Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set2$heartDisease)
+```
+
+**Zbiór Airline**
+
+```{r}
+str(dane_A1)
+
+dane_A1$satisfaction <- as.factor(dane_A1$satisfaction)
+dane_A1$satisfaction <- as.integer(dane_A1$satisfaction)-1
+dane_A1$satisfaction <- as.factor(dane_A1$satisfaction)
+
+dane_A1$Gender <- ifelse(dane_A1$Gender == "Male",1,0)
+dane_A1$Customer.Type <- ifelse(dane_A1$Customer.Type == "Loyal Customer",1,0)
+dane_A1$Type.of.Travel <- ifelse(dane_A1$Type.of.Travel == "Personal Travel",1,0)
+
+dummy_data <- dummyVars(~ Class, data = dane_A1)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_A1))
+dane_A1 <- cbind(dane_A1, dummy_data_transformed)
+
+dane_A1$Satisfaction <- dane_A1$satisfaction 
+dane_A1 <- dane_A1[,-c(1,6,26)]
+str(dane_A1)
+
+# Podzial na zbior uczacy i testowy heart 
+set.seed(123)
+ind <- sample(2, nrow(dane_A1), replace = TRUE, prob = c(0.7, 0.3))
+train_set3 <- dane_A1[ind==1,]
+test_set3  <- dane_A1[ind==2,]
+
+# Model 
+formula <- Satisfaction~.
+model <- glm(formula , data = train_set3, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set3, type = 'response')
+
+# Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set3$Satisfaction)
+```
+
+## **Metoda II**
+
+**Sprawdzenie wartości odstających**
+```{r}
+dane_S3<-na.omit(dane_S)
+dane_A3<-na.omit(dane_A)
+dane_H3<-na.omit(dane_H)
+# Funkcja do wykrywania wartosci odstających na podstawie odchylenia standardowego
+detect_outliers_std <- function(series, n_std = 3) {
+  mean_val <- mean(series)
+  std_val <- sd(series)
+  lower_bound <- mean_val - n_std * std_val
+  upper_bound <- mean_val + n_std * std_val
+  outliers <- (series < lower_bound) | (series > upper_bound)
+  return(data.frame(Liczba_Obserwacji = sum(outliers), Dolna_Granica = lower_bound, Gorna_Granica = upper_bound))
+}
+
+
+# Obliczenie wartosci odstajacych dla kazdego zbioru danych
+# Funkcje do wykrywania wartosci odstających dla kazdej kolumny
+outliers_std <- lapply(dane_A3, detect_outliers_std)
+# Tworzenie ramki danych
+outliers_std_df <- do.call(rbind, outliers_std)
+outliers_std_df$Nazwa_Zmiennej <- rownames(outliers_std_df)
+rownames(outliers_std_df) <- NULL
+# Wyswietlenie wynikowych ramek danych
+print("\nOutliers Standard Deviation:")
+print(outliers_std_df) 
+
+# Funkcje do wykrywania wartosci odstających dla kazdej kolumny
+outliers_std <- lapply(dane_H3, detect_outliers_std)
+# Tworzenie ramki danych dla obu metod
+outliers_std_df <- do.call(rbind, outliers_std)
+outliers_std_df$Nazwa_Zmiennej <- rownames(outliers_std_df)
+rownames(outliers_std_df) <- NULL
+# Wyswietlenie wynikowych ramek danych
+print("\nOutliers Standard Deviation:")
+print(outliers_std_df)
+
+# Funkcje do wykrywania wartosci odstających dla kazdej kolumny
+outliers_std <- lapply(dane_S3, detect_outliers_std)
+# Tworzenie ramki danych dla obu metod
+outliers_std_df <- do.call(rbind, outliers_std)
+outliers_std_df$Nazwa_Zmiennej <- rownames(outliers_std_df)
+
+rownames(outliers_std_df) <- NULL
+# Wyswietlenie wynikowych ramek danych
+print("\nOutliers Standard Deviation:")
+print(outliers_std_df)
+```
+
+
+**Zastąpienie średnią/medianą lub najczęsciej występującą obserwacją w zależności od typu zmiennych**
+
+Na podstawie wyników z sprawdzenia wartości odstających i typów zmiennych zostały zastosowane odpowiednie sposoby elimnacji błędóW. (np. występowanie wartości odstających dla zmiennych numerycznych - zastosowanie mediany)
+
+**Zbiór Airline**
+
+```{r}
+sum(is.na(dane_A$Customer.Type))
+unique(dane_A$Customer.Type)
+table(dane_A$Customer.Type)
+dane_A$Customer.Type[is.na(dane_A$Customer.Type)] <- sample (c('Loyal Customer','disloyal Customer'), prob=c(.80,.20))
+
+sum(is.na(dane_A[,4]))
+dane_A$Age[is.na(dane_A[,4])]<-round(mean(dane_A[,4],na.rm=TRUE),0)
+unique(dane_A[,4])
+#table(dane_A[,4])
+
+sum(is.na(dane_A[,11]))
+unique(dane_A[,11])
+#table(dane_A[,11])
+dane_A$Gate.location[is.na(dane_A[,11])]<-3
+sum(is.na(dane_A[,11]))
+
+sum(is.na(dane_A[,23]))
+median(dane_A1[,23])
+unique(dane_A[,23])
+#table(dane_A[,23])
+dane_A$Arrival.Delay.in.Minutes[is.na(dane_A[,23])]<-median(dane_A1[,23])
+sum(is.na(dane_A[,23]))
+
+sum(is.na(dane_A))
+```
+
+**Zbiór Heart**
+
+```{r}
+sum(is.na(dane_H[,1]))
+unique(dane_H[,1])
+#table(dane_H[,1])
+dane_H$Age[is.na(dane_H[,1])]<-round(mean(dane_H[,1],na.rm=TRUE),0)
+sum(is.na(dane_H[,1]))
+
+sum(is.na(dane_H[,5]))
+unique(dane_H[,5])
+#table(dane_H[,5])
+dane_H$Cholesterol[is.na(dane_H[,5])]<-median(dane_H1[,5])
+sum(is.na(dane_H[,5]))
+
+sum(is.na(dane_H[,7]))
+unique(dane_H[,7])
+#table(dane_H[,7])
+dane_H$RestingECG[is.na(dane_H[,7])]<-"Normal"
+sum(is.na(dane_H[,7]))
+
+sum(is.na(dane_H[,9]))
+unique(dane_H[,9])
+#table(dane_H[,9])
+dane_H$ExerciseAngina[is.na(dane_H$ExerciseAngina)] <- sample (c('N','Y'), prob=c(.6,.4))
+sum(is.na(dane_H[,9]))
+
+sum(is.na(dane_H[,10]))
+unique(dane_H[,10])
+#table(dane_H[,10])
+dane_H$Oldpeak[is.na(dane_H[,10])]<-median(dane_H1[,10])
+sum(is.na(dane_H[,10]))
+
+sum(is.na(dane_H))
+```
+
+**Zbiór Stroke**
+
+```{r}
+sum(is.na(dane_S[,4]))
+unique(dane_S[,4])
+#table(dane_S[,4])
+dane_S$heart_disease[is.na(dane_S[,4])]<-0
+sum(is.na(dane_S[,4]))
+
+sum(is.na(dane_S[,6]))
+unique(dane_S[,6])
+#table(dane_S[,6])
+dane_S$work_type[is.na(dane_S[,6])]<-"Private"
+sum(is.na(dane_S[,6]))
+
+sum(is.na(dane_S[,8]))
+unique(dane_S[,8])
+#table(dane_S[,8])
+dane_S$avg_glucose_level[is.na(dane_S[,8])]<-round(mean(dane_H[,8],na.rm=TRUE),0)
+sum(is.na(dane_S[,8]))
+
+sum(is.na(dane_S[,9]))
+unique(dane_S[,9])
+#table(dane_S[,9])
+dane_S$bmi[is.na(dane_S[,9])]<-median(dane_S1[,9])
+sum(is.na(dane_S[,9]))
+
+sum(is.na(dane_S))
+```
+
+**Budowa modelu**
+
+```{r}
+dane_SII<-dane_S
+dane_AII<-dane_A
+dane_HII<-dane_H
+```
+
+**Zbiór Stroke**
+
+```{r}
+dummy_data <- dummyVars(~ work_type, data = dane_SII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_SII))
+dane_SII <- cbind(dane_SII, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ Residence_type, data = dane_SII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_SII))
+dane_SII <- cbind(dane_SII, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ smoking_status, data = dane_SII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_SII))
+dane_SII <- cbind(dane_SII, dummy_data_transformed)
+
+dane_SII$gender <- ifelse(dane_SII$gender == "Male", 1, 0)
+dane_SII$ever_married <- ifelse(dane_SII$ever_married == "Yes", 1, 0)
+dane_SII$Stroke <- dane_SII$stroke
+dane_SII <- dane_SII[,-c(6,7,10,11,16,17)]
+str(dane_SII$age)
+dane_SII$Stroke <- as.factor(dane_SII$Stroke)
+# Podzial na zbior uczacy i testowy dla zbioru 
+set.seed(123)
+ind <- sample(2, nrow(dane_SII), replace = TRUE, prob = c(0.7, 0.3))
+train_set1 <- dane_SII[ind==1,]
+test_set1  <- dane_SII[ind==2,]
+
+# Regresja logistyczna
+formula <- Stroke~.
+model <- glm(formula , data = train_set1, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set1, type = 'response')
+
+# Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set1$Stroke)
+```
+
+**Zbiór Heart**
+
+```{r}
+str(dane_HII)
+dane_HII$Sex <- ifelse(dane_HII$Sex == "M", 1, 0)
+dane_HII$ExerciseAngina <- ifelse(dane_HII$ExerciseAngina == "N",1,0)
+dane_HII$Oldpeak <- as.numeric(gsub(",", ".", gsub("\\.", "", dane_HII$Oldpeak)))
+dane_HII$HeartDisease <- as.factor(dane_HII$HeartDisease)
+
+
+dummy_data <- dummyVars(~ ChestPainType, data = dane_HII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_HII))
+dane_HII <- cbind(dane_HII, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ RestingECG, data = dane_HII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_HII))
+dane_HII <- cbind(dane_HII, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ ST_Slope, data = dane_HII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_HII))
+dane_HII <- cbind(dane_HII, dummy_data_transformed)
+
+dane_HII$heartDisease <- dane_HII$HeartDisease
+dane_HII <- dane_HII[,-c(3,7,11,12,16,19,22)]
+str(dane_HII)
+
+# Podzial na zbior uczacy i testowy  
+set.seed(123)
+ind <- sample(2, nrow(dane_HII), replace = TRUE, prob = c(0.7, 0.3))
+train_set2 <- dane_HII[ind==1,]
+test_set2  <- dane_HII[ind==2,]
+
+# Model 
+formula <- heartDisease~.
+model <- glm(formula , data = train_set2, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set2, type = 'response')
+
+#Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set2$heartDisease)
+```
+
+**Zbiór Airline**
+
+```{r}
+str(dane_AII)
+
+dane_AII$satisfaction <- as.factor(dane_AII$satisfaction)
+dane_AII$satisfaction <- as.integer(dane_AII$satisfaction)-1
+dane_AII$satisfaction <- as.factor(dane_AII$satisfaction)
+
+dane_AII$Gender <- ifelse(dane_AII$Gender == "Male",1,0)
+dane_AII$Customer.Type <- ifelse(dane_AII$Customer.Type == "Loyal Customer",1,0)
+dane_AII$Type.of.Travel <- ifelse(dane_AII$Type.of.Travel == "Personal Travel",1,0)
+
+dummy_data <- dummyVars(~ Class, data = dane_AII)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = dane_AII))
+dane_AII <- cbind(dane_AII, dummy_data_transformed)
+
+dane_AII$Satisfaction <- dane_AII$satisfaction 
+dane_AII <- dane_AII[,-c(1,6,26)]
+str(dane_AII)
+
+# Podzial na zbior uczacy i testowy  
+set.seed(123)
+ind <- sample(2, nrow(dane_AII), replace = TRUE, prob = c(0.7, 0.3))
+train_set3 <- dane_AII[ind==1,]
+test_set3  <- dane_AII[ind==2,]
+
+# Model 
+formula <- Satisfaction~.
+model <- glm(formula , data = train_set3, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set3, type = 'response')
+
+# Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set3$Satisfaction)
+```
+
+## **Metoda III**
+**W celu wykonania tej metody w wszystkich przypadkach przyjeliśmy dla wartości k wartość 5.**
+
+**Zastąpienie przy wykorzystaniu knn**
+
+Ponowne przygotowanie danych:
+```{r}
+dane_S<-read.csv("zad2_Stroke.csv", sep = ";")
+dane_A<-read.csv("zad2_Airline.csv", sep = ";")
+dane_H<-read.csv("zad2_Heart.csv", sep = ";")
+
+dane_S[,2]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,2])))
+dane_S[,8]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,8])))
+dane_S[,9]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,9])))
+dane_S$age <- as.integer(dane_S$age)
+dane_S$stroke <- as.factor(dane_S$stroke)
+columns_with_na1 <- colnames(dane_A)[colSums(is.na(dane_A)) > 0]
+columns_with_na2 <- colnames(dane_S)[colSums(is.na(dane_S)) > 0]
+columns_with_na3 <- colnames(dane_H)[colSums(is.na(dane_H)) > 0]
+```
+
+**Imputacja**
+
+```{r}
+# Imputacja brakujacych danych za pomoca k-nn
+imputed_A <- kNN(dane_A,columns_with_na1, k = 5,imp_var = FALSE)
+imputed_S <- kNN(dane_S,columns_with_na2, k = 5,imp_var = FALSE)
+imputed_H <- kNN(dane_H,columns_with_na3, k = 5,imp_var = FALSE)
+```
+
+**Budowa modelu**
+
+**Zbiór Stroke**
+```{r}
+dummy_data <- dummyVars(~ work_type, data = imputed_S)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_S))
+imputed_S <- cbind(imputed_S, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ Residence_type, data = imputed_S)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_S))
+imputed_S <- cbind(imputed_S, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ smoking_status, data = imputed_S)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_S))
+imputed_S <- cbind(imputed_S, dummy_data_transformed)
+
+imputed_S$gender <- ifelse(imputed_S$gender == "Male", 1, 0)
+imputed_S$ever_married <- ifelse(imputed_S$ever_married == "Yes", 1, 0)
+imputed_S$Stroke <- imputed_S$stroke
+imputed_S <- imputed_S[,-c(6,7,10,11,16,17)]
+str(imputed_S$age)
+
+# Podzial na zbior uczacy i testowy dla zbioru 
+set.seed(123)
+ind <- sample(2, nrow(imputed_S), replace = TRUE, prob = c(0.7, 0.3))
+train_set1 <- imputed_S[ind==1,]
+test_set1  <- imputed_S[ind==2,]
+
+# Regresja logistyczna
+formula <- Stroke~.
+model <- glm(formula , data = train_set1, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set1, type = 'response')
+
+# Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set1$Stroke)
+```
+
+**Zbiór Heart**
+```{r}
+str(imputed_H)
+imputed_H$Sex <- ifelse(imputed_H$Sex == "M", 1, 0)
+imputed_H$ExerciseAngina <- ifelse(imputed_H$ExerciseAngina == "N",1,0)
+imputed_H$Oldpeak <- as.numeric(gsub(",", ".", gsub("\\.", "", imputed_H$Oldpeak)))
+imputed_H$HeartDisease <- as.factor(imputed_H$HeartDisease)
+
+
+dummy_data <- dummyVars(~ ChestPainType, data = imputed_H)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_H))
+imputed_H <- cbind(imputed_H, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ RestingECG, data = imputed_H)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_H))
+imputed_H <- cbind(imputed_H, dummy_data_transformed)
+
+dummy_data <- dummyVars(~ ST_Slope, data = imputed_H)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_H))
+imputed_H <- cbind(imputed_H, dummy_data_transformed)
+
+imputed_H$heartDisease <- imputed_H$HeartDisease
+imputed_H <- imputed_H[,-c(3,7,11,12,16,19,22)]
+str(imputed_H)
+
+# Podzial na zbior uczacy i testowy  
+set.seed(123)
+ind <- sample(2, nrow(imputed_H), replace = TRUE, prob = c(0.7, 0.3))
+train_set2 <- imputed_H[ind==1,]
+test_set2  <- imputed_H[ind==2,]
+
+# Model 
+formula <- heartDisease~.
+model <- glm(formula , data = train_set2, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set2, type = 'response')
+
+#Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set2$heartDisease)
+```
+
+**Zbiór Airline**
+```{r}
+str(imputed_A)
+
+imputed_A$satisfaction <- as.factor(imputed_A$satisfaction)
+imputed_A$satisfaction <- as.integer(imputed_A$satisfaction)-1
+imputed_A$satisfaction <- as.factor(imputed_A$satisfaction)
+
+imputed_A$Gender <- ifelse(imputed_A$Gender == "Male",1,0)
+imputed_A$Customer.Type <- ifelse(imputed_A$Customer.Type == "Loyal Customer",1,0)
+imputed_A$Type.of.Travel <- ifelse(imputed_A$Type.of.Travel == "Personal Travel",1,0)
+
+dummy_data <- dummyVars(~ Class, data = imputed_A)
+dummy_data_transformed <- as.data.frame(predict(dummy_data, newdata = imputed_A))
+imputed_A <- cbind(imputed_A, dummy_data_transformed)
+
+imputed_A$Satisfaction <- imputed_A$satisfaction 
+imputed_A <- imputed_A[,-c(1,6,26)]
+str(imputed_A)
+
+# Podzial na zbior uczacy i testowy 
+set.seed(123)
+ind <- sample(2, nrow(imputed_A), replace = TRUE, prob = c(0.7, 0.3))
+train_set3 <- imputed_A[ind==1,]
+test_set3  <- imputed_A[ind==2,]
+
+# Model 
+formula <- Satisfaction~.
+model <- glm(formula , data = train_set3, family = binomial)
+
+# Predykcja na zbiorze testowym
+predictions <- predict(model, test_set3, type = 'response')
+
+# Zamiana prawdopodobienstwa na 0 i 1 
+predicted_classes <- ifelse(predictions >= 0.5, 1,0)
+predicted_classes <- as.factor(predicted_classes)
+confusionMatrix(predicted_classes, test_set3$Satisfaction)
+```
+
+## **Ocena wpływu wybranych sposobów eliminacji braków danych na wyniki uzyskiwane po zastosowaniu prostych technik uczenia maszynowego.**
+
+Dla przykładu zostanie omowiona jedna zmienna z każdego zestawu.
+
+**Porównanie statystyk **
+```{r}
+dane_S<-read.csv("zad2_Stroke.csv", sep = ";")
+dane_A<-read.csv("zad2_Airline.csv", sep = ";")
+dane_H<-read.csv("zad2_Heart.csv", sep = ";")
+
+braki_w_kolumnachS <- colSums(is.na(dane_S))
+braki_w_kolumnachH <- colSums(is.na(dane_H))
+braki_w_kolumnachA <- colSums(is.na(dane_A))
+```
+
+W niektórych przypadkach porównanie danych początkowych z metodami nie ma sensu, gdyż statystyki dla danych początkowych zostały policzone bez wartości NA, a w metodzie pierwszej zostały usunięte niektóre wiersze co powoduje porównanie niemożliwym.
+
+**Braki w kolumnach Age, customer.type,gate.location, arrival.delay.in.minutes**
+```{r}
+describe(dane_A$Age)
+describe(dane_A1$Age)
+describe(dane_AII$Age)
+describe(imputed_A$Age)
+```
+
+W tym przypadku możemy stwierdzić, że metody eliminacji danych nie miały znaczącego wpływu na statystyki. Możemy na przykład odtnotwać różnice w średniej dopiero w drugim miejscu po przecinku.
+
+**Braki w kolumnach Age, cholesterol, restingECG, excersiceangina, oldpeak**
+```{r}
+describe(dane_H$Age)
+describe(dane_H1$Age)
+describe(dane_HII$Age)
+describe(imputed_H$Age)
+```
+
+W tym przypadku możemy stwierdzić, że metody eliminacji danych nie miały znaczącego wpływu na statystyki. Możemy na przykład odtnotwać różnice w średniej w miejscu po przecinku.
+
+**Braki w kolumnach heart_disease,work_type, avg_glucose_level, bmi**
+
+```{r}
+dane_S[,2]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,2])))
+dane_S[,8]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,8])))
+dane_S[,9]<-as.numeric(gsub(",", ".", gsub("\\.", "", dane_S[,9])))
+
+describe(dane_S$avg_glucose_level)
+describe(dane_S1$avg_glucose_level)
+describe(dane_SII$avg_glucose_level)
+describe(imputed_S$avg_glucose_level)
+```
+
+W ostatnim przypadku możemy stwierdzić, że metody eliminacji danych miały większy wpływ na statystyki niż w poprzednich przypadkach. Możemy np. odnotować różnice w odchyleniu standardowym i medianie. Najbardziej wyróznia się druga metoda, ale nadal wszystkie statystyki można uznac za bardzo podobne. 
+
+**Zmiana rozkladu zmiennych** 
+
+**Do oceny zmianu rozkładu zmiennych posłuży nam wykres gestości**
+
+```{r}
+plot(density(dane_A1$Age), main = "Wykres gęstości zmiennej x")
+plot(density(dane_AII$Age), main = "Wykres gęstości zmiennej x")
+plot(density(imputed_A$Age), main = "Wykres gęstości zmiennej x")
+
+plot(density(dane_H1$Age), main = "Wykres gęstości zmiennej x")
+plot(density(dane_HII$Age), main = "Wykres gęstości zmiennej x")
+plot(density(imputed_H$Age), main = "Wykres gęstości zmiennej x")
+
+plot(density(dane_S1$avg_glucose_level), main = "Wykres gęstości zmiennej x")
+plot(density(dane_SII$avg_glucose_level), main = "Wykres gęstości zmiennej x")
+plot(density(imputed_S$avg_glucose_level), main = "Wykres gęstości zmiennej x")
+```
+
+We wszystkich przypadkach można uznać, że otrzymane rozkłady są podbne, można jedynie odtnotawać, że wykresy dla drugiej metody różnią się najbardziej.
+
+## **Czy sposób eliminacji braków danych wpływa na uzyskiwane wyniki?** 
+
+Porównując wyniki dla różnych zestawów danych i metod uzupełniania braków, można wywnioskować, że wybór optymalnej metody uzupełniania braków zależy od konkretnego zestawu danych. Oto wnioski z analizy wyników:
+
+**Zestaw Stroke:**
+
+Najlepsza dokładność została osiągnięta przy użyciu pierwszej metody (usunięcie braków danych) i wyniosła 0,7973. Dla drugiej metody (zastąpienie średnią/medianą) oraz trzeciej metody (prognozowanie braków) dokładność wyniosła tyle samo, 0,7565. Wybór metody zależy od konkretnego zestawu danych, ale usunięcie braków danych daje lepsze wyniki w tym przypadku.
+
+**Zestaw Heart:**
+
+Dla pierwszej metody dokładność wyniosła 0,8526, dla drugiej 0,8678, a dla trzeciej 0,8779. Ponieważ w tym przypadku przewidujemy chorobę serca, należy zwrocic uwagę na czulosc. Czułość w przypadku metody 1 wyniosła 0,8235, w przypadku metody 2: 0,8390, a w przypadku metody 3: 0,8390. Chociaż dokładność była najwyższa w przypadku trzeciej metody, czułość była taka sama jak w drugiej i minimalnie wyższa niż w przypadku usunięcia braków.
+
+**Zestaw Airline:**
+
+Dokładność dla pierwszej metody wyniosła 0,8403, a dla pozostałych metod 0,8332. W tym przypadku pierwsza metoda wydaje się być najlepsza.
+Podsumowując, wybór optymalnej metody uzupełniania braków zależy od charakterystyki zestawu danych i celu analizy. Warto dostosować metodę do konkretnych danych i zwracać uwagę na kluczowe miary, takie jak dokładność i czułość, które są istotne w kontekście analizy i celów badawczych.
+
